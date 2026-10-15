@@ -470,7 +470,7 @@ else
     label(logo, "R", 16, Color3.new(1, 1, 1), FB, nil, nil, CENTER)
 end
 label(side, "Risyadh Hub", 13, C.text, FM, UDim2.fromOffset(52, 13), UDim2.new(1, -58, 0, 18))
-label(side, "v1.5", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
+label(side, "v2.0", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
 
 local tabList = new("Frame", {Position = UDim2.fromOffset(8, 66), Size = UDim2.new(1, -16, 1, -150), BackgroundTransparency = 1}, side)
 new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, tabList)
@@ -863,12 +863,11 @@ end
 -- ===== FEATURES =====
 local State = {
     WalkSpeed = false, Speed = 32, InfJump = false, Noclip = false, Fly = false, FlySpeed = 60, Instant = false,
-    ClickTP = false, AutoPrompt = false, PromptRange = 15, ESP = false,
-    Fullbright = false, FOVOn = false, FOV = 90, AntiAFK = false,
+    ESP = false, Fullbright = false, FOVOn = false, FOV = 90, AntiAFK = false,
     ESPHL = true, ESPDist = true, ESPEgg = false, ESPBrain = false,
-    ZoomOn = false, Zoom = 400, AutoClick = false, ClickDelay = 200, Freeze = false,
-    ShowBase = false, AutoHome = true, HatchCd = 3, PlaceCd = 4,
-    JumpOn = false, Jump = 50, LowGrav = false, NoFog = false, NoShadow = false, TimeOn = false, Time = 12,
+    AutoClick = false, ClickDelay = 200,
+    AutoHome = true, HatchCd = 3, PlaceCd = 4,
+    JumpOn = false, Jump = 50, NoFog = false,
 }
 
 local function hum()
@@ -941,6 +940,10 @@ track(RunService.RenderStepped:Connect(function()
         local fwd = flat.Magnitude > 0 and dir:Dot(flat.Unit) or 0
         vel = dir * State.FlySpeed + Vector3.new(0, look.Y * fwd * State.FlySpeed, 0)
     end
+    -- naik: Space / tombol jump HP, turun: Shift
+    local up = (UIS:IsKeyDown(Enum.KeyCode.Space) or h.Jump) and 1 or 0
+    local down = UIS:IsKeyDown(Enum.KeyCode.LeftShift) and 1 or 0
+    vel += Vector3.new(0, (up - down) * State.FlySpeed, 0)
     flyBV.Velocity = vel
     flyBG.CFrame = camera.CFrame
 end))
@@ -955,15 +958,12 @@ end))
 -- ===== FITUR TAMBAHAN =====
 local alive = true
 local Base = {} -- jembatan antar bagian (promptPart, Base.itemFolder, Go Home, Go Safe)
-local mouse = lp:GetMouse()
 local origLight = {
     Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
     GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
     FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
 }
-local origGravity = workspace.Gravity
 local origFOV = (workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView) or 70
-State.OrigZoom = lp.CameraMaxZoomDistance
 
 local function applyLight()
     if State.Fullbright then
@@ -973,9 +973,7 @@ local function applyLight()
         Lighting.Ambient = Color3.fromRGB(178, 178, 178)
         Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
     end
-    if State.NoShadow then Lighting.GlobalShadows = false end
     if State.NoFog then Lighting.FogEnd = 1e6 end
-    if State.TimeOn then Lighting.ClockTime = State.Time end
 end
 local function restoreLight()
     Lighting.Brightness = origLight.Brightness
@@ -993,9 +991,9 @@ local espObjs = {}
 local function clearESP(plr)
     local e = espObjs[plr]
     if e then
-        for _, o in pairs(e) do
-            if typeof(o) == "Instance" then pcall(function() o:Destroy() end) end
-        end
+        -- cuma hancurin objek ESP-nya sendiri. JANGAN e.head: itu Head karakter pemain lain
+        if e.hl then pcall(function() e.hl:Destroy() end) end
+        if e.bb then pcall(function() e.bb:Destroy() end) end
         espObjs[plr] = nil
     end
 end
@@ -1079,7 +1077,10 @@ task.spawn(function()
                 if p.Parent and p.Enabled then
                     local tx = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. p.Parent.Name):lower()
                     local isEgg = State.ESPEgg and tx:find("egg", 1, true)
-                    local isBrain = State.ESPBrain and tx:find("brain", 1, true)
+                    -- brainrot di game ini namanya macem-macem (nggak selalu ada kata "brain"),
+                    -- jadi prompt "Steal" juga dihitung sebagai brainrot
+                    local isBrain = State.ESPBrain and (tx:find("brain", 1, true)
+                        or (p.ActionText or ""):lower():find("steal", 1, true))
                     if isEgg or isBrain then
                         local part = Base.promptPart(p)
                         if part then
@@ -1113,17 +1114,6 @@ task.spawn(function()
         task.wait(0.25)
         applyLight()
         local r = root()
-        if r and State.AutoPrompt and fireproximityprompt then
-            for p in pairs(prompts) do
-                if p.Parent and p.Enabled then
-                    local par = p.Parent
-                    local pos = par:IsA("BasePart") and par.Position or (par:IsA("Attachment") and par.WorldPosition) or nil
-                    if pos and (pos - r.Position).Magnitude <= State.PromptRange then
-                        pcall(fireproximityprompt, p)
-                    end
-                end
-            end
-        end
         if r and State.ESP then
             for _, e in pairs(espObjs) do
                 if e.lbl and e.head and e.head.Parent then
@@ -1141,13 +1131,6 @@ track(RunService.RenderStepped:Connect(function()
         if cam then cam.FieldOfView = State.FOV end
     end
 end))
-track(UIS.InputBegan:Connect(function(i, gp)
-    if gp or not State.ClickTP then return end
-    if i.UserInputType == Enum.UserInputType.MouseButton1 and UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
-        local r = root()
-        if r and mouse.Hit then r.CFrame = mouse.Hit + Vector3.new(0, 3, 0) end
-    end
-end))
 track(lp.Idled:Connect(function()
     if State.AntiAFK then
         pcall(function()
@@ -1161,19 +1144,29 @@ local function restoreAll()
     alive = false
     setESP(false)
     restoreLight()
-    workspace.Gravity = origGravity
-    pcall(function() lp.CameraMaxZoomDistance = State.OrigZoom end)
     pcall(function() Base.itemFolder:ClearAllChildren() end)
-    if State.Freeze then local fr = root() if fr then fr.Anchored = false end end
+    if Base.stopSpec then pcall(Base.stopSpec) end
     local cam = workspace.CurrentCamera
     if cam and State.FOVOn then cam.FieldOfView = origFOV end
 end
 
 -- server hop
+local function httpGet(url)
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if ok and type(res) == "string" and res ~= "" then return res end
+    local req = (syn and syn.request) or request or http_request
+    if req then
+        local ok2, r = pcall(req, {Url = url, Method = "GET"})
+        if ok2 and r and type(r.Body) == "string" then return r.Body end
+    end
+end
 local function serverList()
     local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
-    local ok, res = pcall(function() return HttpService:JSONDecode(game:HttpGet(url)) end)
+    local body = httpGet(url)
+    if not body then return nil end
+    local ok, res = pcall(function() return HttpService:JSONDecode(body) end)
     if ok and res and res.data then return res.data end
+    return nil
 end
 local function hop(lowest)
     local list = serverList()
@@ -1198,7 +1191,7 @@ end
 local home = newTab("Home", I.home, "Welcome!")
 
 -- banner
-local banner = new("Frame", {Size = UDim2.new(1, 0, 0, 132), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd(), ClipsDescendants = true}, home)
+local banner = new("Frame", {Size = UDim2.new(1, 0, 0, 96), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd(), ClipsDescendants = true}, home)
 round(banner, 12)
 stroke(banner)
 label(banner, "WELCOME BACK", 9, C.mute, FM, UDim2.fromOffset(16, 14), UDim2.new(0.6, 0, 0, 14))
@@ -1206,53 +1199,9 @@ local nameLbl = label(banner, lp.DisplayName, 22, C.text, FB, UDim2.fromOffset(1
 local userLbl = label(banner, "@" .. lp.Name, 11, C.mute, F, UDim2.fromOffset(16, 60), UDim2.new(0.6, 0, 0, 16))
 local bust = new("ImageLabel", {
     BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, 0),
-    Size = UDim2.fromOffset(110, 110), ScaleType = Enum.ScaleType.Fit,
+    Size = UDim2.fromOffset(92, 92), ScaleType = Enum.ScaleType.Fit,
     Image = "rbxthumb://type=AvatarBust&id=" .. lp.UserId .. "&w=150&h=150",
 }, banner)
-
-local chipRow = new("Frame", {Position = UDim2.fromOffset(16, 90), Size = UDim2.new(0.7, 0, 0, 28), BackgroundTransparency = 1}, banner)
-new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, chipRow)
-local function chip(g, txt, col, cb)
-    local b = new("TextButton", {
-        Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.item,
-        Text = "", AutoButtonColor = false, LayoutOrder = nextOrd(),
-    }, chipRow)
-    round(b, 8)
-    stroke(b)
-    b.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            b.BackgroundColor3 = Color3.fromRGB(95, 95, 95)
-        end
-    end)
-    b.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            b.BackgroundColor3 = C.item
-        end
-    end)
-    new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 12)}, b)
-    new("UIListLayout", {
-        FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
-    }, b)
-    ico(b, g, 12, col or C.text, nil, UDim2.fromOffset(15, 15))
-    new("TextLabel", {
-        BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 1, 0),
-        Text = txt, TextColor3 = col or C.text, Font = FM, TextSize = 11, LayoutOrder = 2,
-    }, b)
-    if cb then b.Activated:Connect(cb) end
-    return b
-end
-chip(I.badge, "v1.5", C.accent)
-local nameHidden, avatarHidden = false, false
-chip(I.name, "Name", C.text, function()
-    nameHidden = not nameHidden
-    nameLbl.Text = nameHidden and "Hidden" or lp.DisplayName
-    userLbl.Text = nameHidden and "@••••••" or ("@" .. lp.Name)
-end)
-chip(I.avatar, "Avatar", C.text, function()
-    avatarHidden = not avatarHidden
-    bust.Visible = not avatarHidden
-end)
 
 -- statistik
 local statsCard = new("Frame", {Size = UDim2.new(1, 0, 0, 152), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd()}, home)
@@ -1377,7 +1326,12 @@ local function rowBtn(glyph, txt, cb)
     b.Activated:Connect(function() task.spawn(cb, lb, txt) end)
 end
 rowBtn(I.rejoin, "Rejoin", function()
-    pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp) end)
+    if #Players:GetPlayers() <= 1 then
+        -- server sepi: instance yang sama nggak bisa dimasuki lagi, jadi cari server baru
+        pcall(function() TeleportService:Teleport(game.PlaceId, lp) end)
+    else
+        pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp) end)
+    end
 end)
 rowBtn(I.hop, "Hop", function(b, t)
     flash(b, "...", t)
@@ -1758,13 +1712,8 @@ local buildClient -- kartu Client dipasang di tab Settings
     -- Interact
     local ia = card(mr, "Interact", I.pointer)
     toggle(ia, "Instant Prompt", false, function(v) State.Instant = v end)
-    toggle(ia, "Auto Prompt", false, function(v) State.AutoPrompt = v end)
-    slider(ia, "Prompt Range", 5, 50, State.PromptRange, function(v) State.PromptRange = v end, " st")
-
-    -- Auto Tool: klik tool yang lagi dipegang
-    local atc = card(mr, "Auto Tool", I.pointer)
-    toggle(atc, "Auto Click Tool", false, function(v) State.AutoClick = v end)
-    slider(atc, "Click Delay", 50, 2000, 200, function(v) State.ClickDelay = v end, "ms")
+    toggle(ia, "Auto Click Tool", false, function(v) State.AutoClick = v end)
+    slider(ia, "Click Delay", 50, 2000, 200, function(v) State.ClickDelay = v end, "ms")
     task.spawn(function()
         while alive do
             task.wait(State.ClickDelay / 1000)
@@ -1819,7 +1768,7 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     -- ===== EGG FARM: auto place, auto hatch, auto farm =====
     State.AutoPlaceEgg, State.AutoHatch, State.AutoFarmEgg = false, false, false
-    State.EggDelay, State.EggRange, State.EggBuy = 1.5, 25, false
+    State.EggDelay, State.EggRange = 1.5, 25
     State.BaseRadius, State.PlaceMode, State.AutoCollectBase = 60, "Auto", false
 
     local function pText(p)
@@ -1970,7 +1919,6 @@ local buildClient -- kartu Client dipasang di tab Settings
         local r = root()
         if not r then return end
         local words = {"collect", "claim", "pick", "grab", "take"}
-        if State.EggBuy then words[#words + 1] = "buy" end
         for _, e in ipairs(findPrompts(words, false)) do
             if atSafe or not State.AutoFarmEgg then return end
             if pText(e.p):find("egg") and not pText(e.p):find("steal") then
@@ -2017,11 +1965,8 @@ local buildClient -- kartu Client dipasang di tab Settings
     toggle(eg, "Auto Place Egg", false, function(v) State.AutoPlaceEgg = v end)
     toggle(eg, "Auto Hatch Egg", false, function(v) State.AutoHatch = v end)
     toggle(eg, "Auto Farm Egg", false, function(v) State.AutoFarmEgg = v end)
-    toggle(eg, "Include Buy Egg", false, function(v) State.EggBuy = v end)
-    slider(eg, "Egg Range", 5, 80, 25, function(v) State.EggRange = v end, " st")
+    toggle(eg, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
     slider(eg, "Egg Delay", 300, 5000, 1500, function(v) State.EggDelay = v / 1000 end, "ms")
-    slider(eg, "Hatch Cooldown", 1, 10, 3, function(v) State.HatchCd = v end, "s")
-    slider(eg, "Place Cooldown", 1, 15, 4, function(v) State.PlaceCd = v end, "s")
 
     -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
     local mb = card(er, "My Base", I.home)
@@ -2041,76 +1986,15 @@ local buildClient -- kartu Client dipasang di tab Settings
         flash(b, "Dihapus", t)
     end)
     slider(mb, "Base Radius", 20, 200, 60, function(v) State.BaseRadius = v end, " st")
-    dropdown(mb, "Place Mode", {"Auto", "Prompt", "Tool Click"}, "Auto", function(v) State.PlaceMode = v end)
-    toggle(mb, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
-    toggle(mb, "Auto Home on Respawn", true, function(v) State.AutoHome = v end)
-    Controls["Home Base"] = {get = function() return posTable(homeCF) end, set = function(v) homeCF = fromTable(v) or homeCF homeAuto = false end}
-
-    -- Base Tools: buat ngecek script beneran ngenalin rumah kamu
-    local markFolder = new("Folder", {Name = "BaseMarks"}, gui)
-    local function markBasePrompts()
-        markFolder:ClearAllChildren()
-        local sets = {
-            {words = {"place", "plant", "incubat", "nest"}, name = "PLACE", col = Color3.fromRGB(110, 231, 160)},
-            {words = {"hatch"}, name = "HATCH", col = Color3.fromRGB(255, 210, 90)},
-            {words = {"collect", "claim"}, name = "COLLECT", col = Color3.fromRGB(120, 190, 255)},
-        }
-        for _, st in ipairs(sets) do
-            for _, e in ipairs(findPrompts(st.words, true)) do
-                local part = Base.promptPart(e.p)
-                if part then
-                    local bb = new("BillboardGui", {
-                        Adornee = part, AlwaysOnTop = true, Size = UDim2.fromOffset(90, 22), StudsOffset = Vector3.new(0, 3, 0),
-                    }, markFolder)
-                    new("TextLabel", {
-                        BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, Size = UDim2.new(1, 0, 1, 0),
-                        Text = st.name, TextColor3 = st.col, Font = FB, TextSize = 11,
-                    }, bb)
-                end
-            end
-        end
-        task.delay(8, function() if markFolder.Parent then markFolder:ClearAllChildren() end end)
-    end
-    local areaPart
-    task.spawn(function()
-        while alive do
-            task.wait(0.5)
-            local a = State.ShowBase and anchorPos()
-            if a then
-                if not areaPart or not areaPart.Parent then
-                    areaPart = Instance.new("Part")
-                    areaPart.Name = "RisyadhBaseArea"
-                    areaPart.Shape = Enum.PartType.Cylinder
-                    areaPart.Anchored = true
-                    areaPart.CanCollide = false
-                    areaPart.CanQuery = false
-                    areaPart.CanTouch = false
-                    areaPart.Material = Enum.Material.Neon
-                    areaPart.Color = C.accent
-                    areaPart.Transparency = 0.85
-                    areaPart.Parent = workspace
-                end
-                local dia = State.BaseRadius * 2
-                areaPart.Size = Vector3.new(0.4, dia, dia)
-                areaPart.CFrame = CFrame.new(a.X, a.Y - 3, a.Z) * CFrame.Angles(0, 0, math.rad(90))
-            elseif areaPart then
-                areaPart:Destroy()
-                areaPart = nil
-            end
-        end
-        if areaPart then areaPart:Destroy() end
-    end)
-    local bt = card(er, "Base Tools", I.pointer)
-    toggle(bt, "Show Base Area", false, function(v) State.ShowBase = v end)
-    btnPair(bt, "Scan Base", function(b, t)
+    -- cek apakah script beneran ngenalin base lo: P = tempat taruh, H = hatch, C = collect
+    local scanBtn
+    scanBtn = button(mb, "Scan Base", function()
         local np = #findPrompts({"place", "plant", "incubat", "nest"}, true)
         local nh = #findPrompts({"hatch"}, true)
         local nc = #findPrompts({"collect", "claim"}, true)
-        flash(b, ("P%d H%d C%d"):format(np, nh, nc), t)
-    end, "Show Prompts", function(b, t)
-        markBasePrompts()
-        flash(b, "8 detik", t)
+        flash(scanBtn, ("P%d  H%d  C%d"):format(np, nh, nc), "Scan Base")
     end)
+    Controls["Home Base"] = {get = function() return posTable(homeCF) end, set = function(v) homeCF = fromTable(v) or homeCF homeAuto = false end}
 
     -- loop treadmill
     local lastTick = 0
@@ -2220,9 +2104,9 @@ toggle(mv, "Jump Power", false, function(v)
     if not v then local h = hum() if h then h.JumpPower = 50 end end
 end)
 slider(mv, "Jump Height", 50, 250, State.Jump, function(v) State.Jump = v end)
-toggle(mv, "Low Gravity", false, function(v)
-    State.LowGrav = v
-    workspace.Gravity = v and 60 or origGravity
+button(mv, "Reset Character", function()
+    local h = hum()
+    if h then h.Health = 0 end
 end)
 
 local fl = card(pr, "Fly", I.fly)
@@ -2233,66 +2117,68 @@ end)
 slider(fl, "Fly Speed", 20, 300, State.FlySpeed, function(v) State.FlySpeed = v end)
 
 local tp = card(pr, "Teleport", "pin")
-toggle(tp, "Click TP (Ctrl+Click)", false, function(v) State.ClickTP = v end)
 btnPair(tp, "Go Home", function(b, t)
     flash(b, Base.goHome and Base.goHome() and "OK" or "Set Home dulu", t)
 end, "Go Safe", function(b, t)
     if Base.goSafe then Base.goSafe() flash(b, "OK", t) end
 end)
-local plist = new("Frame", {
-    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-    BackgroundTransparency = 1, LayoutOrder = nextOrd(),
-}, tp)
-new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, plist)
-local function rebuildPlayers()
-    for _, c in ipairs(plist:GetChildren()) do
-        if c:IsA("TextButton") then c:Destroy() end
-    end
+
+-- pilih pemain (dropdown) -> Teleport / Spectate
+local plrMap, plrDD = {}, nil
+local spectating
+local function stopSpec()
+    spectating = nil
+    local cam, h = workspace.CurrentCamera, hum()
+    if cam and h then cam.CameraSubject = h end
+end
+Base.stopSpec = stopSpec
+local function refreshPlayers()
+    plrMap = {}
+    local names = {}
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= lp then
-            local b = new("TextButton", {
-                Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = C.item, Text = p.DisplayName,
-                TextColor3 = C.text, Font = F, TextSize = 11, LayoutOrder = nextOrd(),
-                TextTruncate = Enum.TextTruncate.AtEnd,
-            }, plist)
-            round(b, 8)
-            pressFx(b, 8)
-            b.Activated:Connect(function()
-                local r = root()
-                local tr = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                if r and tr then r.CFrame = tr.CFrame * CFrame.new(0, 0, 4) end
-            end)
+            local l = p.DisplayName .. " (@" .. p.Name .. ")"
+            plrMap[l] = p
+            names[#names + 1] = l
         end
     end
+    table.sort(names)
+    plrDD.setOptions(names, true)
 end
-rebuildPlayers()
-track(Players.PlayerAdded:Connect(function() task.wait(0.3) rebuildPlayers() end))
-track(Players.PlayerRemoving:Connect(function() task.delay(0.2, rebuildPlayers) end))
-
-local chC = card(pl, "Character", I.player)
-button(chC, "Reset Character", function()
-    local h = hum()
-    if h then h.Health = 0 end
-end)
-button(chC, "Sit / Stand", function()
-    local h = hum()
-    if h then h.Sit = not h.Sit end
-end)
-toggle(chC, "Freeze Character", false, function(v)
-    State.Freeze = v
+plrDD = dropdown(tp, "Player", {}, nil, function() end, true)
+refreshPlayers()
+local function selPlayer()
+    local v = plrDD.get()
+    return v and plrMap[v] or nil
+end
+btnPair(tp, "Teleport", function(b, t)
+    local p = selPlayer()
     local r = root()
-    if r then r.Anchored = v end
+    local tr = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if r and tr then
+        r.CFrame = tr.CFrame * CFrame.new(0, 0, 4)
+        flash(b, "OK", t)
+    else
+        flash(b, "Pilih player", t)
+    end
+end, "Spectate", function(b, t)
+    if spectating then stopSpec() flash(b, "Stop", t) return end
+    local p = selPlayer()
+    local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+    if h and workspace.CurrentCamera then
+        spectating = p
+        workspace.CurrentCamera.CameraSubject = h
+        flash(b, "Nonton", t)
+    else
+        flash(b, "Pilih player", t)
+    end
 end)
-
-local camC = card(pl, "Camera", "eye")
-toggle(camC, "Unlock Zoom", false, function(v)
-    State.ZoomOn = v
-    lp.CameraMaxZoomDistance = v and State.Zoom or State.OrigZoom
-end)
-slider(camC, "Max Zoom", 20, 1000, State.Zoom, function(v)
-    State.Zoom = v
-    if State.ZoomOn then lp.CameraMaxZoomDistance = v end
-end)
+track(Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end))
+track(Players.PlayerRemoving:Connect(function(p)
+    if p == spectating then stopSpec() end
+    task.delay(0.2, refreshPlayers)
+end))
+track(lp.CharacterAdded:Connect(function() if spectating then task.wait(0.5) stopSpec() end end))
 
 end
 
@@ -2318,6 +2204,10 @@ toggle(world, "Fullbright", false, function(v)
     State.Fullbright = v
     if not v then restoreLight() end
 end)
+toggle(world, "No Fog", false, function(v)
+    State.NoFog = v
+    if not v then restoreLight() end
+end)
 toggle(world, "FOV Changer", false, function(v)
     State.FOVOn = v
     if not v then
@@ -2326,26 +2216,13 @@ toggle(world, "FOV Changer", false, function(v)
     end
 end)
 slider(world, "FOV", 40, 120, State.FOV, function(v) State.FOV = v end)
-toggle(world, "No Fog", false, function(v)
-    State.NoFog = v
-    if not v then restoreLight() end
-end)
-toggle(world, "No Shadows", false, function(v)
-    State.NoShadow = v
-    if not v then restoreLight() end
-end)
-toggle(world, "Custom Time", false, function(v)
-    State.TimeOn = v
-    if not v then restoreLight() end
-end)
-slider(world, "Time of Day", 0, 24, State.Time, function(v) State.Time = v end, "h")
 
 end
 
 -- ===== SETTINGS =====
 do
-local settings = newTab("Settings", I.settings)
-local sl, sr = twoCol(settings)
+local settingsTab = newTab("Settings", I.settings)
+local sl, sr = twoCol(settingsTab)
 
 -- Menu
 local menuC = card(sl, "Menu", I.ui)
@@ -2394,6 +2271,16 @@ local function applyFab(v)
     else fab.Visible = not UIS.KeyboardEnabled end -- Hidden: tetap muncul kalau nggak ada keyboard, biar nggak terkunci
 end
 dropdown(menuC, "Toggle button", {"Always", "Mobile only", "Hidden"}, "Always", applyFab)
+-- matiin semua fitur sekaligus (darurat). Toggle tampilan bawaan-ON dibiarkan.
+local keepOn = {["Highlight"] = true, ["Show Distance"] = true, ["TP to Safe after Steal"] = true}
+button(menuC, "Disable All Features", function()
+    for k, h in pairs(Controls) do
+        if not keepOn[k] then
+            local ok, v = pcall(h.get)
+            if ok and v == true then pcall(h.set, false) end
+        end
+    end
+end)
 button(menuC, "Unload Hub", function()
     if env.RisyadhUnload then env.RisyadhUnload() end
 end)
@@ -2503,70 +2390,6 @@ end)
 local ui = card(sl, "Interface", I.ui)
 slider(ui, "UI Scale", 60, 120, 100, function(v) userScale = v / 100 uiScale.Scale = userScale end, "%")
 
-local dimFrame = new("Frame", {
-    Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.55,
-    BorderSizePixel = 0, ZIndex = 0, Active = false, Visible = false,
-}, gui)
-local dimOn = false
-local function updateDim() dimFrame.Visible = dimOn and main.Visible end
-track(main:GetPropertyChangedSignal("Visible"):Connect(updateDim))
-toggle(ui, "Dim", false, function(v) dimOn = v updateDim() end)
-
--- Weather
-local fx = card(sr, "Effects", "sun")
-local weather, wmode = "None", "Screen"
-local wBox = new("Frame", {
-    Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ClipsDescendants = true,
-    ZIndex = 0, Active = false, Visible = false,
-}, gui)
-local flakes = {}
-local function clearFlakes()
-    for _, f in ipairs(flakes) do f.obj:Destroy() end
-    flakes = {}
-end
-local function buildWeather()
-    clearFlakes()
-    wBox.Visible = (weather ~= "None")
-    wBox.Parent = (wmode == "Menu") and main or gui
-    wBox.ZIndex = (wmode == "Menu") and 3 or 0
-    if weather == "None" then return end
-    for k = 1, (weather == "Rain" and 70 or 45) do
-        local o
-        if weather == "Rain" then
-            o = new("Frame", {
-                Size = UDim2.fromOffset(1, math.random(10, 16)), BackgroundColor3 = Color3.new(1, 1, 1),
-                BackgroundTransparency = 0.5, BorderSizePixel = 0, ZIndex = wBox.ZIndex,
-            }, wBox)
-        else
-            local sz = math.random(3, 6)
-            o = new("Frame", {
-                Size = UDim2.fromOffset(sz, sz), BackgroundColor3 = Color3.new(1, 1, 1),
-                BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = wBox.ZIndex,
-            }, wBox)
-            round(o, 3)
-        end
-        flakes[#flakes + 1] = {
-            obj = o, x = math.random(), y = math.random(),
-            v = (weather == "Rain") and (0.9 + math.random() * 0.6) or (0.07 + math.random() * 0.09),
-            d = (weather == "Rain") and 0.02 or ((math.random() - 0.5) * 0.04),
-            ph = math.random() * 6.28,
-        }
-    end
-end
-track(RunService.Heartbeat:Connect(function(dt)
-    if weather == "None" then return end
-    local t = os.clock()
-    for _, f in ipairs(flakes) do
-        f.y += f.v * dt
-        f.x += (f.d + ((weather == "Snow") and math.sin(t + f.ph) * 0.012 or 0)) * dt
-        if f.y > 1.03 then f.y = -0.03 f.x = math.random() end
-        if f.x > 1.02 then f.x = -0.02 elseif f.x < -0.02 then f.x = 1.02 end
-        f.obj.Position = UDim2.fromScale(f.x, f.y)
-    end
-end))
-dropdown(fx, "Weather", {"None", "Snow", "Rain"}, "None", function(v) weather = v buildWeather() end)
-dropdown(fx, "Weather Mode", {"Screen", "Menu"}, "Screen", function(v) wmode = v buildWeather() end)
-
 task.defer(function()
     if not FS_OK then return end
     task.wait(0.5)
@@ -2597,86 +2420,4 @@ end
 
 tabs[1].pick()
 
--- ===== INTRO =====
-task.spawn(function()
-    local ok = pcall(function()
-        local splash = new("Frame", {
-            Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1,
-            BorderSizePixel = 0, ZIndex = 50, Active = true,
-        }, gui)
-        local function tw(o, t, props, style, dir)
-            local tween = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
-            tween:Play()
-            return tween
-        end
-        local ring = new("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-            Size = UDim2.fromOffset(96, 96), BackgroundTransparency = 1, BorderSizePixel = 0,
-        }, splash)
-        new("UICorner", {CornerRadius = UDim.new(1, 0)}, ring)
-        local ringStroke = stroke(ring, Color3.new(1, 1, 1), 2)
-        ringStroke.Transparency = 1
-        local holder = new("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-            Size = UDim2.fromOffset(0, 0), BackgroundColor3 = C.item, BorderSizePixel = 0, ClipsDescendants = true,
-        }, splash)
-        new("UICorner", {CornerRadius = UDim.new(1, 0)}, holder)
-        local hs = stroke(holder, Color3.new(1, 1, 1), 2)
-        local mark
-        if logoImg then
-            mark = new("ImageLabel", {
-                BackgroundTransparency = 1, Image = logoImg, Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Crop,
-                ImageTransparency = 1,
-            }, holder)
-        else
-            mark = label(holder, "R", 44, Color3.new(1, 1, 1), FB, nil, nil, CENTER)
-            mark.TextTransparency = 1
-        end
-        local title = label(splash, "Risyadh Hub", 22, Color3.new(1, 1, 1), FB, UDim2.new(0, 0, 0.44, 70), UDim2.new(1, 0, 0, 30), CENTER)
-        title.TextTransparency = 1
-        local sub = label(splash, "loading...", 11, C.mute, F, UDim2.new(0, 0, 0.44, 100), UDim2.new(1, 0, 0, 16), CENTER)
-        sub.TextTransparency = 1
-        local track0 = new("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.44, 126), Size = UDim2.fromOffset(160, 3),
-            BackgroundColor3 = C.off, BackgroundTransparency = 1, BorderSizePixel = 0,
-        }, splash)
-        new("UICorner", {CornerRadius = UDim.new(1, 0)}, track0)
-        local bar = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0}, track0)
-        new("UICorner", {CornerRadius = UDim.new(1, 0)}, bar)
-
-        tw(splash, 0.3, {BackgroundTransparency = 0.08})
-        task.wait(0.15)
-        tw(holder, 0.55, {Size = UDim2.fromOffset(96, 96)}, Enum.EasingStyle.Back)
-        tw(mark, 0.4, mark:IsA("ImageLabel") and {ImageTransparency = 0} or {TextTransparency = 0})
-        task.wait(0.4)
-        ringStroke.Transparency = 0.2
-        tw(ring, 0.8, {Size = UDim2.fromOffset(190, 190)})
-        tw(ringStroke, 0.8, {Transparency = 1})
-        tw(title, 0.4, {TextTransparency = 0})
-        tw(sub, 0.4, {TextTransparency = 0})
-        tw(track0, 0.3, {BackgroundTransparency = 0})
-        task.wait(0.2)
-        tw(bar, 1.0, {Size = UDim2.fromScale(1, 1)}, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-        task.wait(1.1)
-
-        tw(holder, 0.4, {Size = UDim2.fromOffset(0, 0)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
-        tw(hs, 0.3, {Transparency = 1})
-        tw(title, 0.3, {TextTransparency = 1})
-        tw(sub, 0.3, {TextTransparency = 1})
-        tw(track0, 0.3, {BackgroundTransparency = 1})
-        tw(bar, 0.3, {BackgroundTransparency = 1})
-        tw(splash, 0.45, {BackgroundTransparency = 1})
-        task.wait(0.3)
-        setMenu(true)
-        task.wait(0.2)
-        splash:Destroy()
-    end)
-    if not ok and gui and gui.Parent then
-        local sp
-        for _, c in ipairs(gui:GetChildren()) do
-            if c:IsA("Frame") and c.ZIndex == 50 then sp = c end
-        end
-        if sp then sp:Destroy() end
-        setMenu(true)
-    end
-end)
+setMenu(true)
