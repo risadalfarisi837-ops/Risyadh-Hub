@@ -1064,6 +1064,83 @@ function Base.promptPart(p)
     if par and par:IsA("BasePart") then return par end
 end
 
+-- ===== RARITY HELPER (dipakai Egg Farm & Auto Sell) =====
+-- Rarity dibaca dari: Attribute, ValueBase "Rarity", teks label di dalam objek, ToolTip, lalu nama.
+-- Kalau rarity TIDAK terdeteksi: egg tetap diproses (filter longgar), item tidak dijual (aman).
+Base.RARITIES = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Divine", "Secret"}
+Base.RANK = {}
+for i, n in ipairs(Base.RARITIES) do Base.RANK[n:lower()] = i end
+State.EggFilter = false
+State.EggRar, State.SellRar = {}, {}
+for i = 1, #Base.RARITIES do
+    State.EggRar[i] = true
+    State.SellRar[i] = (i == 1)
+end
+Base.rarityFromText = function(s)
+    s = tostring(s or ""):lower()
+    if s == "" then return nil end
+    for i = #Base.RARITIES, 1, -1 do -- dari atas: "uncommon" kena sebelum "common"
+        if s:find(Base.RARITIES[i]:lower(), 1, true) then return i end
+    end
+    if s:find("legend", 1, true) then return 5 end
+    if s:find("myth", 1, true) then return 6 end
+end
+-- levels: berapa tingkat induk yang dicek (Tool = 1, ProximityPrompt = 3)
+Base.rarityOf = function(obj, levels)
+    if not obj then return nil end
+    levels = levels or 3
+    local cur = obj
+    if obj:IsA("ProximityPrompt") then
+        local r = Base.rarityFromText((obj.ActionText or "") .. " " .. (obj.ObjectText or ""))
+        if r then return r end
+        cur = obj.Parent
+        if cur and cur:IsA("Attachment") then cur = cur.Parent end
+    end
+    for lvl = 1, levels do
+        if not cur or cur == workspace or cur == game then break end
+        for k, a in pairs(cur:GetAttributes()) do
+            if type(a) == "string" then
+                local r = Base.RANK[a:lower()]
+                if r then return r end
+            elseif type(a) == "number" and (k:lower() == "rarity" or k:lower() == "tier") and Base.RARITIES[a] then
+                return a
+            end
+        end
+        local isPlayerNamed = Players:FindFirstChild(cur.Name) ~= nil
+        if lvl <= 2 or cur:IsA("Tool") then
+            local n = 0
+            for _, d in ipairs(cur:GetDescendants()) do
+                n += 1
+                if n > 80 then break end
+                if d:IsA("ValueBase") then
+                    local ok, v = pcall(function() return d.Value end)
+                    if ok and type(v) == "string" then
+                        local r = Base.RANK[v:lower()] or (d.Name:lower():find("rarity", 1, true) and Base.rarityFromText(v))
+                        if r then return r end
+                    end
+                elseif d:IsA("TextLabel") and d.Text ~= "" and #d.Text < 40 then
+                    local r = Base.rarityFromText(d.Text)
+                    if r then return r end
+                end
+            end
+        end
+        if not isPlayerNamed then
+            local txt = cur.Name
+            if cur:IsA("Tool") then txt = txt .. " " .. cur.ToolTip end
+            local r = Base.rarityFromText(txt)
+            if r then return r end
+        end
+        cur = cur.Parent
+        if cur and cur:IsA("Attachment") then cur = cur.Parent end
+    end
+end
+Base.eggOk = function(obj)
+    if not State.EggFilter then return true end
+    local r = Base.rarityOf(obj, obj:IsA("Tool") and 1 or 3)
+    if not r then return true end
+    return State.EggRar[r] == true
+end
+
 -- Item ESP: label melayang di prompt Egg / Brainrot terdekat (maks 40)
 Base.itemFolder = new("Folder", {Name = "ItemESP"}, gui)
 task.spawn(function()
@@ -1785,14 +1862,14 @@ local buildClient -- kartu Client dipasang di tab Settings
         local ch = lp.Character
         if not ch then return nil end
         for _, t in ipairs(ch:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("egg") then return t end
+            if t:IsA("Tool") and t.Name:lower():find("egg") and Base.eggOk(t) then return t end
         end
     end
     local function firstEggTool()
         local bp = lp:FindFirstChildOfClass("Backpack")
         if not bp then return nil end
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("egg") then return t end
+            if t:IsA("Tool") and t.Name:lower():find("egg") and Base.eggOk(t) then return t end
         end
     end
     -- cari prompt berdasarkan kata kunci. mineOnly = cuma yang ada di base sendiri.
@@ -1862,7 +1939,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     local function doHatch()
         for _, e in ipairs(findPrompts({"hatch"}, true)) do
             if atSafe or not (State.AutoHatch or State.AutoFarmEgg) then return end
-            if not pText(e.p):find("steal", 1, true) and (not hatchCd[e.p] or os.clock() - hatchCd[e.p] > State.HatchCd) then
+            if not pText(e.p):find("steal", 1, true) and Base.eggOk(e.p) and (not hatchCd[e.p] or os.clock() - hatchCd[e.p] > State.HatchCd) then
                 hatchCd[e.p] = os.clock()
                 useAt(e.pos, function() fireproximityprompt(e.p) end)
                 task.wait(0.3)
@@ -1921,7 +1998,7 @@ local buildClient -- kartu Client dipasang di tab Settings
         local words = {"collect", "claim", "pick", "grab", "take"}
         for _, e in ipairs(findPrompts(words, false)) do
             if atSafe or not State.AutoFarmEgg then return end
-            if pText(e.p):find("egg") and not pText(e.p):find("steal") then
+            if pText(e.p):find("egg") and not pText(e.p):find("steal") and Base.eggOk(e.p) then
                 if isMine(e.p) then
                     useAt(e.pos, function() fireproximityprompt(e.p) end)
                 elseif (e.pos - r.Position).Magnitude <= State.EggRange then
@@ -1967,6 +2044,13 @@ local buildClient -- kartu Client dipasang di tab Settings
     toggle(eg, "Auto Farm Egg", false, function(v) State.AutoFarmEgg = v end)
     toggle(eg, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
     slider(eg, "Egg Delay", 300, 5000, 1500, function(v) State.EggDelay = v / 1000 end, "ms")
+
+    -- Filter rarity: cuma egg dengan rarity yang di-ON-kan yang di-place / hatch / collect
+    local erc = card(el, "Egg Rarity", I.badge)
+    toggle(erc, "Filter Egg by Rarity", false, function(v) State.EggFilter = v end)
+    for i, rn in ipairs(Base.RARITIES) do
+        toggle(erc, "Egg: " .. rn, true, function(v) State.EggRar[i] = v end)
+    end
 
     -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
     local mb = card(er, "My Base", I.home)
@@ -2035,6 +2119,291 @@ local buildClient -- kartu Client dipasang di tab Settings
         end
     end)
 
+    -- ===== AUTO REBIRTH + AUTO SELL (per rarity) + GOD MODE =====
+    ;(function()
+        State.AutoRebirth, State.RebirthDelay = false, 5
+        State.AutoSell, State.SellDelay, State.SellTarget, State.SellMax = false, 4, "Brainrot", 6
+
+        -- ---- helper tombol GUI (fallback kalau game nggak pakai ProximityPrompt) ----
+        local function btnText(d)
+            if d:IsA("TextButton") and d.Text ~= "" then return d.Text:lower() end
+            for _, c in ipairs(d:GetChildren()) do
+                if c:IsA("TextLabel") and c.Text ~= "" then return c.Text:lower() end
+            end
+            return d.Name:lower()
+        end
+        local guiCache, guiAt = {}, 0
+        local function guiButtons()
+            if os.clock() - guiAt < 2 then return guiCache end
+            guiAt = os.clock()
+            local list = {}
+            local pg = lp:FindFirstChildOfClass("PlayerGui")
+            if pg then
+                for i, d in ipairs(pg:GetDescendants()) do
+                    if (d:IsA("TextButton") or d:IsA("ImageButton")) and not (gui and d:IsDescendantOf(gui)) then
+                        list[#list + 1] = {b = d, t = btnText(d)}
+                    end
+                    if i % 3000 == 0 then task.wait() end
+                end
+            end
+            guiCache = list
+            return list
+        end
+        local function findGuiBtns(word, reject, maxN)
+            local out = {}
+            for _, e in ipairs(guiButtons()) do
+                if e.b.Parent and e.t:find(word, 1, true) and not (reject and reject(e.t)) then
+                    out[#out + 1] = e.b
+                    if #out >= (maxN or 3) then break end
+                end
+            end
+            return out
+        end
+        local function clickGui(b)
+            if getconnections then
+                for _, sig in ipairs({"Activated", "MouseButton1Click"}) do
+                    local ok, cs = pcall(function() return getconnections(b[sig]) end)
+                    if ok and cs and #cs > 0 then
+                        for _, c in ipairs(cs) do pcall(function() c:Fire() end) end
+                        return true
+                    end
+                end
+            end
+            if firesignal then
+                local ok = pcall(function() firesignal(b.MouseButton1Click) end)
+                pcall(function() firesignal(b.Activated) end)
+                return ok
+            end
+            return false
+        end
+
+        -- jalanin fn tanpa bentrok sama loop Egg Farm (sama-sama equip tool / teleport)
+        local function withBusy(fn)
+            local t0 = os.clock()
+            while eggBusy and os.clock() - t0 < 10 do task.wait(0.1) end
+            if eggBusy then return end
+            eggBusy = true
+            pcall(fn)
+            eggBusy = false
+        end
+
+        -- ---- AUTO REBIRTH ----
+        local rbRemotes, rbAt = {}, 0
+        local function rebirthRemotes()
+            if os.clock() - rbAt < 15 then return rbRemotes end
+            rbAt = os.clock()
+            local list = {}
+            pcall(function()
+                for _, d in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                    if (d:IsA("RemoteEvent") or d:IsA("RemoteFunction")) and d.Name:lower():find("rebirth", 1, true) then
+                        list[#list + 1] = d
+                    end
+                end
+            end)
+            rbRemotes = list
+            return list
+        end
+        local function doRebirth()
+            -- 1) ProximityPrompt "rebirth"
+            if fireproximityprompt then
+                for _, e in ipairs(findPrompts({"rebirth"}, false)) do
+                    if not pText(e.p):find("steal", 1, true) then
+                        useAt(e.pos, function() fireproximityprompt(e.p) end)
+                        return
+                    end
+                end
+            end
+            -- 2) tombol GUI yang tulisannya "rebirth" (menu lalu konfirmasi)
+            local btns = findGuiBtns("rebirth", nil, 3)
+            if #btns > 0 then
+                for _, b in ipairs(btns) do
+                    clickGui(b)
+                    task.wait(0.35)
+                end
+                return
+            end
+            -- 3) remote bernama "rebirth" di ReplicatedStorage (tanpa argumen)
+            for _, rm in ipairs(rebirthRemotes()) do
+                task.spawn(function()
+                    pcall(function()
+                        if rm:IsA("RemoteEvent") then rm:FireServer() else rm:InvokeServer() end
+                    end)
+                end)
+            end
+        end
+
+        -- ---- AUTO SELL per rarity ----
+        local SKIP = {"bat", "sword", "hammer", "potion", "boost", "grapple"}
+        local function skipName(n)
+            for _, w in ipairs(SKIP) do
+                if n:find("%f[%a]" .. w .. "%f[%A]") then return true end
+            end
+        end
+        local function hasAll(tx)
+            return tx:find("sellall", 1, true) or tx:find("sell all", 1, true) or tx:find("%f[%a]all%f[%A]")
+        end
+        local function sellable(t)
+            local n = t.Name:lower()
+            local isEgg = n:find("egg", 1, true) ~= nil
+            if State.SellTarget == "Brainrot" and isEgg then return false end
+            if State.SellTarget == "Egg" and not isEgg then return false end
+            if skipName(n) then return false end
+            local r = Base.rarityOf(t, 1)
+            return r ~= nil and State.SellRar[r] == true
+        end
+        local function eachTool(fn)
+            local bp = lp:FindFirstChildOfClass("Backpack")
+            if bp then for _, t in ipairs(bp:GetChildren()) do if t:IsA("Tool") then fn(t) end end end
+            local ch = lp.Character
+            if ch then for _, t in ipairs(ch:GetChildren()) do if t:IsA("Tool") then fn(t) end end end
+        end
+        -- jual item yang SEDANG DIPEGANG (bukan "Sell All", biar rarity lain tidak ikut kejual)
+        local function sellHeld()
+            if fireproximityprompt then
+                for _, e in ipairs(findPrompts({"sell"}, false)) do
+                    local tx = pText(e.p)
+                    if not tx:find("steal", 1, true) and not hasAll(tx) then
+                        useAt(e.pos, function() fireproximityprompt(e.p) end)
+                        return true
+                    end
+                end
+            end
+            local btns = findGuiBtns("sell", hasAll, 1)
+            if btns[1] then return clickGui(btns[1]) end
+            return false
+        end
+        local function doSell()
+            local h = hum()
+            if not h then return end
+            local list = {}
+            eachTool(function(t) if sellable(t) then list[#list + 1] = t end end)
+            for i, t in ipairs(list) do
+                if i > State.SellMax or atSafe or not State.AutoSell then break end
+                if t.Parent then
+                    h:EquipTool(t)
+                    task.wait(0.25)
+                    if not sellHeld() then return end
+                    task.wait(0.35)
+                end
+            end
+        end
+
+        task.spawn(function()
+            while alive do
+                task.wait(State.RebirthDelay)
+                if State.AutoRebirth and not atSafe then withBusy(doRebirth) end
+            end
+        end)
+        task.spawn(function()
+            while alive do
+                task.wait(State.SellDelay)
+                if State.AutoSell and not atSafe then withBusy(doSell) end
+            end
+        end)
+
+        -- ---- UI: tab Auto ----
+        local autoTab = newTab("Auto", I.rejoin, "Auto Rebirth & Sell")
+        local al, ar = twoCol(autoTab)
+
+        local rbC = card(al, "Auto Rebirth", I.rejoin)
+        toggle(rbC, "Auto Rebirth", false, function(v) State.AutoRebirth = v end)
+        slider(rbC, "Rebirth Delay", 1, 60, 5, function(v) State.RebirthDelay = v end, "s")
+        local rbScan
+        rbScan = button(rbC, "Scan Rebirth", function()
+            local np = #findPrompts({"rebirth"}, false)
+            local ng = #findGuiBtns("rebirth", nil, 20)
+            flash(rbScan, ("P%d  G%d  R%d"):format(np, ng, #rebirthRemotes()), "Scan Rebirth")
+        end)
+
+        local sellC = card(ar, "Auto Sell", I.badge)
+        toggle(sellC, "Auto Sell", false, function(v) State.AutoSell = v end)
+        dropdown(sellC, "Sell Target", {"Brainrot", "Egg", "All"}, "Brainrot", function(v) State.SellTarget = v end)
+        slider(sellC, "Sell Delay", 1, 30, 4, function(v) State.SellDelay = v end, "s")
+        slider(sellC, "Max per Cycle", 1, 20, 6, function(v) State.SellMax = v end)
+        for i, rn in ipairs(Base.RARITIES) do
+            toggle(sellC, "Sell: " .. rn, i == 1, function(v) State.SellRar[i] = v end)
+        end
+        local sellScan
+        sellScan = button(sellC, "Scan Sell", function()
+            local nt, nr = 0, 0
+            eachTool(function(t)
+                nt += 1
+                if Base.rarityOf(t, 1) then nr += 1 end
+            end)
+            local ns = #findPrompts({"sell"}, false) + #findGuiBtns("sell", nil, 20)
+            flash(sellScan, ("T%d  R%d  S%d"):format(nt, nr, ns), "Scan Sell")
+        end)
+
+        -- ---- GOD MODE (anti pukul / anti knockback, sisi client) ----
+        State.GodMode = false
+        local godMax
+        local GOD_OFF = {Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.Physics}
+        local function godStates(on)
+            local h = hum()
+            if not h then return end
+            for _, s in ipairs(GOD_OFF) do pcall(function() h:SetStateEnabled(s, not on) end) end
+        end
+        Base.setGod = function(v)
+            State.GodMode = v
+            local h = hum()
+            if v then
+                if h and h.MaxHealth < 1e6 then godMax = h.MaxHealth end
+                godStates(true)
+            else
+                godStates(false)
+                if h and godMax then
+                    h.MaxHealth = godMax
+                    h.Health = godMax
+                end
+            end
+        end
+        Base.godOff = function() if State.GodMode then Base.setGod(false) end end
+        local lastMotor = 0
+        track(RunService.Heartbeat:Connect(function()
+            if not State.GodMode then return end
+            local h, r = hum(), root()
+            if not (h and r) then return end
+            -- 1) darah selalu penuh
+            if h.MaxHealth ~= math.huge then h.MaxHealth = math.huge end
+            if h.Health ~= math.huge then h.Health = math.huge end
+            -- 2) batalin ragdoll / jatuh / stun
+            local st = h:GetState()
+            if st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Ragdoll
+                or st == Enum.HumanoidStateType.Physics
+                or (st == Enum.HumanoidStateType.PlatformStand and not State.Fly) then
+                h:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+            -- 3) redam lontaran (knockback) yang jauh di atas kecepatan jalan normal
+            if not State.Fly then
+                local v = r.AssemblyLinearVelocity
+                local flat = Vector3.new(v.X, 0, v.Z).Magnitude
+                local lim = h.WalkSpeed * 1.5 + 20
+                local jp = math.max(60, (h.UseJumpPower and h.JumpPower or 50) * 1.5)
+                if flat > lim or v.Y > jp then
+                    r.AssemblyLinearVelocity = h.MoveDirection * h.WalkSpeed + Vector3.new(0, v.Y > jp and 0 or v.Y, 0)
+                end
+            end
+            -- 4) sambungan badan (Motor6D) yang dimatiin sistem ragdoll dinyalain lagi
+            if os.clock() - lastMotor > 0.25 then
+                lastMotor = os.clock()
+                local ch = lp.Character
+                if ch then
+                    for _, d in ipairs(ch:GetDescendants()) do
+                        if d:IsA("Motor6D") and not d.Enabled then d.Enabled = true end
+                    end
+                end
+            end
+        end))
+        track(lp.CharacterAdded:Connect(function()
+            task.wait(1)
+            if State.GodMode then
+                local h = hum()
+                if h and h.MaxHealth < 1e6 then godMax = h.MaxHealth end
+                godStates(true)
+            end
+        end))
+    end)()
+
     -- Client: dipasang di tab Settings lewat buildClient(kolom)
     buildClient = function(col)
         local cl = card(col, "Client", I.sys)
@@ -2090,6 +2459,9 @@ end)()
 do
 local player = newTab("Player", I.player)
 local pl, pr = twoCol(player)
+
+local gm = card(pr, "God Mode", I.player)
+toggle(gm, "God Mode", false, function(v) if Base.setGod then Base.setGod(v) end end)
 
 local mv = card(pl, "Movement", I.move)
 toggle(mv, "WalkSpeed", false, function(v)
@@ -2410,6 +2782,7 @@ end
 -- ===== UNLOAD =====
 env.RisyadhUnload = function()
     pcall(restoreAll)
+    if Base.godOff then pcall(Base.godOff) end
     for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
     stopFly()
     local h = hum()
