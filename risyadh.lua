@@ -397,19 +397,53 @@ local uiScale = new("UIScale", {Scale = 1}, main)
 local userScale = 1
 local menuOpen = false
 local menuToken = 0
+-- animasi buka/tutup: zoom + geser + fade. Tween lama selalu dibatalkan dulu biar nggak tabrakan.
+local anim = {tw = {}, rest = main.Position, settled = true,
+    cover = new("Frame", {Name = "FadeCover", Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.bg,
+        BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 500, Active = false}, main)}
+round(anim.cover, 14)
 local function setMenu(v)
     menuToken += 1
     local my = menuToken
-    menuOpen = v
+    for _, t in ipairs(anim.tw) do pcall(function() t:Cancel() end) end
+    anim.tw = {}
+    local function play(obj, info, goal)
+        local t = TweenService:Create(obj, info, goal)
+        anim.tw[#anim.tw + 1] = t
+        t:Play()
+    end
+    local cover = anim.cover
     if v then
+        menuOpen = true
+        anim.settled = false
         uiScale.Scale = userScale * 0.8
+        main.Position = anim.rest + UDim2.fromOffset(0, 36)
+        cover.BackgroundTransparency = 0
         main.Visible = true
-        TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = userScale}):Play()
+        play(uiScale, TweenInfo.new(0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = userScale})
+        play(main, TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = anim.rest})
+        play(cover, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1})
+        task.delay(0.42, function() if menuToken == my then anim.settled = true end end)
     else
-        TweenService:Create(uiScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = userScale * 0.85}):Play()
-        task.delay(0.17, function()
+        menuOpen = false
+        local cp = main.Position
+        if anim.settled then anim.rest = cp end -- ingat posisi terakhir (habis digeser)
+        anim.settled = false
+        play(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = userScale * 0.88})
+        play(main, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = cp + UDim2.fromOffset(0, 20)})
+        play(cover, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 0})
+        task.delay(0.2, function()
             if menuToken == my then
                 main.Visible = false
+                uiScale.Scale = userScale
+                main.Position = anim.rest
+                cover.BackgroundTransparency = 1
+                anim.settled = true
+            end
+        end)
+    end
+end
+main.Visible = false
                 uiScale.Scale = userScale
             end
         end)
@@ -472,7 +506,11 @@ end
 label(side, "Risyadh Hub", 13, C.text, FM, UDim2.fromOffset(52, 13), UDim2.new(1, -58, 0, 18))
 label(side, "v2.0", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
 
-local tabList = new("Frame", {Position = UDim2.fromOffset(8, 66), Size = UDim2.new(1, -16, 1, -150), BackgroundTransparency = 1}, side)
+local tabList = new("ScrollingFrame", {
+    Position = UDim2.fromOffset(8, 62), Size = UDim2.new(1, -16, 1, -142), BackgroundTransparency = 1,
+    BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = C.mute,
+    CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y,
+}, side)
 new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, tabList)
 
 -- profil bawah
@@ -574,9 +612,9 @@ local function newTab(name, icon, heading)
     new("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder}, page)
     new("UIPadding", {
         PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14),
-        PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 14),
+        PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 40),
     }, page)
-    local entry = {heading = heading}
+    local entry = {heading = heading, name = name}
     local function pick()
         for _, t in ipairs(tabs) do
             t.page.Visible = false
@@ -585,6 +623,7 @@ local function newTab(name, icon, heading)
             tint(t.ic, C.mute)
         end
         page.Visible = true
+        page.ScrollingEnabled = true
         btn.BackgroundTransparency = 0
         lb.TextColor3 = C.text
         tint(ic, C.text)
@@ -749,6 +788,12 @@ local function slider(parent, name, mn, mx, def, cb, suffix, noSave)
             if scroller then scroller.ScrollingEnabled = true end
         end
     end))
+    local function release()
+        dragging = false
+        if scroller then scroller.ScrollingEnabled = true end
+    end
+    hit.InputEnded:Connect(function(i) if isPress(i) then release() end end)
+    track(UIS.TouchEnded:Connect(release))
     local h = {get = function() return curv end, set = function(v) if type(v) == "number" then apply(v) end end}
     if not noSave then Controls[name] = h end
     return h
@@ -958,6 +1003,99 @@ end))
 -- ===== FITUR TAMBAHAN =====
 local alive = true
 local Base = {} -- jembatan antar bagian (promptPart, Base.itemFolder, Go Home, Go Safe)
+
+-- dropdown checklist (pilih banyak), gaya "Egg Rarities (none = all)"
+Base.multiDropdown = function(parent, name, options, defaults, cb, noSave)
+    local sel = {}
+    for _, o in ipairs(defaults or {}) do sel[o] = true end
+    local wrap = new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextOrd()}, parent)
+    new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, wrap)
+    local ttl = label(wrap, name, 12, C.text, F, UDim2.new(), UDim2.new(1, 0, 0, 20))
+    ttl.LayoutOrder = 0
+    reg(wrap, name)
+    local btn = new("TextButton", {
+        Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.item, Text = "", AutoButtonColor = false, LayoutOrder = 1,
+    }, wrap)
+    round(btn, 8)
+    stroke(btn)
+    pressFx(btn, 8)
+    local cur = label(btn, "None", 11, C.text, FM, UDim2.fromOffset(10, 0), UDim2.new(1, -30, 1, 0))
+    ico(btn, "chevdown", 11, C.mute, UDim2.new(1, -22, 0, 0), UDim2.fromOffset(16, 32))
+    local list = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.card,
+        BorderSizePixel = 0, Visible = false, LayoutOrder = 2,
+    }, wrap)
+    round(list, 8)
+    stroke(list)
+    new("UIListLayout", {Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder}, list)
+    new("UIPadding", {PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3)}, list)
+
+    local boxes = {}
+    local function chosen()
+        local out = {}
+        for _, o in ipairs(options) do if sel[o] then out[#out + 1] = o end end
+        return out
+    end
+    local function refresh()
+        local c = chosen()
+        cur.Text = (#c == 0 and "None") or (#c == #options and "All") or (#c <= 2 and table.concat(c, ", ")) or (#c .. " dipilih")
+        for o, bx in pairs(boxes) do bx.BackgroundColor3 = sel[o] and C.accent or C.off end
+    end
+    local function fire()
+        refresh()
+        task.spawn(cb, chosen())
+    end
+
+    local act = new("Frame", {Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = 0}, list)
+    local function mini(txt, pos, fn)
+        local b = new("TextButton", {
+            Size = UDim2.new(0.5, -2, 1, 0), Position = pos, BackgroundColor3 = C.head, Text = txt,
+            TextColor3 = C.mute, Font = FM, TextSize = 11, AutoButtonColor = false,
+        }, act)
+        round(b, 6)
+        pressFx(b, 6)
+        b.Activated:Connect(fn)
+    end
+    mini("Pilih Semua", UDim2.new(0, 0, 0, 0), function()
+        for _, o in ipairs(options) do sel[o] = true end
+        fire()
+    end)
+    mini("Hapus", UDim2.new(0.5, 2, 0, 0), function()
+        sel = {}
+        fire()
+    end)
+    for idx, o in ipairs(options) do
+        local row = new("TextButton", {
+            Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = idx,
+        }, list)
+        round(row, 6)
+        pressFx(row, 6)
+        local bx = new("Frame", {
+            Position = UDim2.new(0, 8, 0.5, -7), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = C.off, BorderSizePixel = 0, Active = false,
+        }, row)
+        round(bx, 4)
+        boxes[o] = bx
+        label(row, tostring(o), 11, C.text, F, UDim2.fromOffset(30, 0), UDim2.new(1, -34, 1, 0))
+        row.Activated:Connect(function()
+            sel[o] = (not sel[o]) or nil
+            fire()
+        end)
+    end
+    btn.Activated:Connect(function() list.Visible = not list.Visible end)
+    refresh()
+    task.spawn(cb, chosen())
+
+    local h = {}
+    function h.get() return chosen() end
+    function h.set(v)
+        if type(v) ~= "table" then return end
+        sel = {}
+        for _, o in ipairs(v) do sel[o] = true end
+        fire()
+    end
+    if not noSave then Controls[name] = h end
+    return h
+end
 local origLight = {
     Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
     GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
@@ -2047,10 +2185,14 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     -- Filter rarity: cuma egg dengan rarity yang di-ON-kan yang di-place / hatch / collect
     local erc = card(el, "Egg Rarity", I.badge)
-    toggle(erc, "Filter Egg by Rarity", false, function(v) State.EggFilter = v end)
-    for i, rn in ipairs(Base.RARITIES) do
-        toggle(erc, "Egg: " .. rn, true, function(v) State.EggRar[i] = v end)
-    end
+    Base.multiDropdown(erc, "Egg Rarities (none = all)", Base.RARITIES, {}, function(sel)
+        State.EggFilter = #sel > 0
+        for i = 1, #Base.RARITIES do State.EggRar[i] = false end
+        for _, rn in ipairs(sel) do
+            local i = Base.RANK[rn:lower()]
+            if i then State.EggRar[i] = true end
+        end
+    end)
 
     -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
     local mb = card(er, "My Base", I.home)
@@ -2320,9 +2462,13 @@ local buildClient -- kartu Client dipasang di tab Settings
         dropdown(sellC, "Sell Target", {"Brainrot", "Egg", "All"}, "Brainrot", function(v) State.SellTarget = v end)
         slider(sellC, "Sell Delay", 1, 30, 4, function(v) State.SellDelay = v end, "s")
         slider(sellC, "Max per Cycle", 1, 20, 6, function(v) State.SellMax = v end)
-        for i, rn in ipairs(Base.RARITIES) do
-            toggle(sellC, "Sell: " .. rn, i == 1, function(v) State.SellRar[i] = v end)
-        end
+        Base.multiDropdown(sellC, "Sell Rarities (none = jangan jual)", Base.RARITIES, {"Common"}, function(sel)
+            for i = 1, #Base.RARITIES do State.SellRar[i] = false end
+            for _, rn in ipairs(sel) do
+                local i = Base.RANK[rn:lower()]
+                if i then State.SellRar[i] = true end
+            end
+        end)
         local sellScan
         sellScan = button(sellC, "Scan Sell", function()
             local nt, nr = 0, 0
@@ -2778,6 +2924,164 @@ task.defer(function()
     end
 end)
 end
+
+-- ===== GAME MODE: tab menyesuaikan jenis game (Egg / Fishing / Universal) =====
+;(function()
+    -- ---- tab Fishing (generik: pakai Tool pancing + tombol GUI, tanpa remote khusus game) ----
+    State.AutoFish, State.AutoReel, State.FishDelay = false, true, 1.2
+    local fishTab = newTab("Fishing", I.pointer, "Auto Fishing")
+    local fl, fr = twoCol(fishTab)
+
+    local function hum2() local c = lp.Character return c and c:FindFirstChildOfClass("Humanoid") end
+    local function rodTool()
+        local ch, bp = lp.Character, lp:FindFirstChildOfClass("Backpack")
+        for _, holder in ipairs({ch, bp}) do
+            if holder then
+                for _, t in ipairs(holder:GetChildren()) do
+                    if t:IsA("Tool") then
+                        local n = (t.Name .. " " .. t.ToolTip):lower()
+                        if n:find("rod", 1, true) or n:find("fishing", 1, true) or n:find("pancing", 1, true) then return t end
+                    end
+                end
+            end
+        end
+    end
+    local function guiBtns(words, maxN)
+        local out = {}
+        local pg = lp:FindFirstChildOfClass("PlayerGui")
+        if not pg then return out end
+        for _, d in ipairs(pg:GetDescendants()) do
+            if d:IsA("GuiButton") and d.Visible and d.AbsoluteSize.X > 0 then
+                local sg = d:FindFirstAncestorOfClass("ScreenGui")
+                if not sg or sg.Enabled then
+                    local tx = d:IsA("TextButton") and d.Text or ""
+                    if tx == "" then
+                        local tl = d:FindFirstChildWhichIsA("TextLabel", true)
+                        tx = tl and tl.Text or ""
+                    end
+                    tx = (tx .. " " .. d.Name):lower()
+                    for _, w in ipairs(words) do
+                        if tx:find(w, 1, true) then out[#out + 1] = d break end
+                    end
+                    if #out >= maxN then break end
+                end
+            end
+        end
+        return out
+    end
+    local function clickGui(b)
+        if getconnections then
+            for _, sig in ipairs({"Activated", "MouseButton1Click"}) do
+                local ok, cs = pcall(function() return getconnections(b[sig]) end)
+                if ok and cs and #cs > 0 then
+                    for _, c in ipairs(cs) do pcall(function() c:Fire() end) end
+                    return true
+                end
+            end
+        end
+        if firesignal then
+            pcall(function() firesignal(b.MouseButton1Click) end)
+            pcall(function() firesignal(b.Activated) end)
+            return true
+        end
+        return false
+    end
+
+    local fc = card(fl, "Auto Fishing", I.pointer)
+    toggle(fc, "Auto Fish", false, function(v) State.AutoFish = v end)
+    toggle(fc, "Auto Reel / Catch", true, function(v) State.AutoReel = v end)
+    slider(fc, "Fish Delay", 300, 5000, 1200, function(v) State.FishDelay = v / 1000 end, "ms")
+
+    local fi = card(fr, "Info", I.badge)
+    local scanBtn
+    scanBtn = button(fi, "Scan Fishing", function()
+        local rods = rodTool() and 1 or 0
+        local btns = #guiBtns({"reel", "catch", "pull", "tarik"}, 10)
+        local rem = {}
+        pcall(function()
+            for _, d in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+                    local n = d.Name:lower()
+                    if n:find("fish", 1, true) or n:find("cast", 1, true) or n:find("reel", 1, true) or n:find("catch", 1, true) then
+                        rem[#rem + 1] = d:GetFullName()
+                    end
+                end
+            end
+        end)
+        print("[Risyadh Hub] Remote terkait fishing:", #rem)
+        for _, n in ipairs(rem) do print("  " .. n) end
+        flash(scanBtn, ("Rod %d  Btn %d  Rem %d"):format(rods, btns, #rem), "Scan Fishing")
+    end)
+
+    task.spawn(function()
+        while gui and gui.Parent do
+            task.wait(State.FishDelay)
+            if State.AutoFish then
+                pcall(function()
+                    local t = rodTool()
+                    if t then
+                        if t.Parent ~= lp.Character then
+                            local h = hum2()
+                            if h then h:EquipTool(t) end
+                            task.wait(0.2)
+                        end
+                        t:Activate()
+                    end
+                    if State.AutoReel then
+                        for _, b in ipairs(guiBtns({"reel", "catch", "pull", "tarik"}, 3)) do clickGui(b) end
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ---- Game Mode: tab yang tampil mengikuti game ----
+    local mode, detected = "Auto-detect", "Universal"
+    local function kindOf(text)
+        text = tostring(text or ""):lower()
+        if text:find("fish", 1, true) or text:find("angler", 1, true) or text:find("pancing", 1, true) then return "Fishing" end
+        if text:find("egg", 1, true) or text:find("hatch", 1, true) or text:find("brainrot", 1, true) then return "Egg" end
+        return "Universal"
+    end
+    local offOnHide = {
+        Egg = {"Auto Place Egg", "Auto Hatch Egg", "Auto Farm Egg", "Auto Collect Base", "Auto Rebirth", "Auto Sell"},
+        Fishing = {"Auto Fish"},
+    }
+    local function applyMode()
+        local m = (mode == "Auto-detect") and detected or mode
+        for _, t in ipairs(tabs) do
+            local show = true
+            if t.name == "Egg" or t.name == "Auto" then show = (m == "Egg")
+            elseif t.name == "Fishing" then show = (m == "Fishing") end
+            t.btn.Visible = show
+            if not show and t.page.Visible and tabs[1] then tabs[1].pick() end
+        end
+        for kind, names in pairs(offOnHide) do
+            if kind ~= m then
+                for _, n in ipairs(names) do
+                    local h = Controls[n]
+                    if h then pcall(h.set, false) end
+                end
+            end
+        end
+    end
+    detected = kindOf(game.Name)
+    applyMode()
+    task.spawn(function()
+        local ok, info = pcall(function() return Market:GetProductInfo(game.PlaceId) end)
+        if ok and info then
+            local k = kindOf((info.Name or "") .. " " .. (info.Description or ""):sub(1, 300))
+            if kindOf(info.Name) ~= "Universal" then k = kindOf(info.Name) end
+            if k ~= "Universal" then detected = k end
+            applyMode()
+        end
+    end)
+    local gm = card(sl, "Game Mode", I.main)
+    dropdown(gm, "Mode", {"Auto-detect", "Egg", "Fishing", "Universal"}, "Auto-detect", function(v)
+        mode = v
+        applyMode()
+    end)
+end)()
 
 -- ===== UNLOAD =====
 env.RisyadhUnload = function()
