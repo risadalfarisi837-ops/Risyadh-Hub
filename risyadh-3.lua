@@ -444,12 +444,6 @@ local function setMenu(v)
     end
 end
 main.Visible = false
-                uiScale.Scale = userScale
-            end
-        end)
-    end
-end
-main.Visible = false
 
 local side = new("Frame", {Size = UDim2.new(0, 150, 1, 0), BackgroundColor3 = C.side, BorderSizePixel = 0, Active = true}, main)
 round(side, 14)
@@ -2741,6 +2735,7 @@ end
 do
 local settingsTab = newTab("Settings", I.settings)
 local sl, sr = twoCol(settingsTab)
+Base.settingsLeft = sl
 
 -- Menu
 local menuC = card(sl, "Menu", I.ui)
@@ -3076,7 +3071,7 @@ end
             applyMode()
         end
     end)
-    local gm = card(sl, "Game Mode", I.main)
+    local gm = card(Base.settingsLeft, "Game Mode", I.main)
     dropdown(gm, "Mode", {"Auto-detect", "Egg", "Fishing", "Universal"}, "Auto-detect", function(v)
         mode = v
         applyMode()
