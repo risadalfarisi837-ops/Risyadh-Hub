@@ -386,9 +386,9 @@ local gui = new("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true,
 }, host)
 
-local main = new("Frame", {
+local main = new("CanvasGroup", {
     Size = UDim2.fromScale(0.62, 0.94), Position = UDim2.fromScale(0.57, 0.5), AnchorPoint = Vector2.new(0.5, 0.5),
-    BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true,
+    BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true, GroupTransparency = 1,
 }, gui)
 round(main, 14)
 stroke(main, C.line, 1)
@@ -402,12 +402,15 @@ local function setMenu(v)
     local my = menuToken
     menuOpen = v
     if v then
-        uiScale.Scale = userScale * 0.8
+        main.GroupTransparency = 1
+        uiScale.Scale = userScale * 0.7
         main.Visible = true
-        TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = userScale}):Play()
+        TweenService:Create(uiScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = userScale}):Play()
+        TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
     else
-        TweenService:Create(uiScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = userScale * 0.85}):Play()
-        task.delay(0.17, function()
+        TweenService:Create(uiScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = userScale * 0.8}):Play()
+        TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {GroupTransparency = 1}):Play()
+        task.delay(0.22, function()
             if menuToken == my then
                 main.Visible = false
                 uiScale.Scale = userScale
@@ -470,7 +473,7 @@ else
     label(logo, "R", 16, Color3.new(1, 1, 1), FB, nil, nil, CENTER)
 end
 label(side, "Risyadh Hub", 13, C.text, FM, UDim2.fromOffset(52, 13), UDim2.new(1, -58, 0, 18))
-label(side, "v2.0", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
+label(side, "v2.1", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
 
 local tabList = new("Frame", {Position = UDim2.fromOffset(8, 66), Size = UDim2.new(1, -16, 1, -150), BackgroundTransparency = 1}, side)
 new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, tabList)
@@ -584,7 +587,9 @@ local function newTab(name, icon, heading)
             t.lb.TextColor3 = C.mute
             tint(t.ic, C.mute)
         end
+        page.Position = UDim2.fromOffset(0, 14)
         page.Visible = true
+        TweenService:Create(page, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = UDim2.new()}):Play()
         btn.BackgroundTransparency = 0
         lb.TextColor3 = C.text
         tint(ic, C.text)
@@ -958,6 +963,119 @@ end))
 -- ===== FITUR TAMBAHAN =====
 local alive = true
 local Base = {} -- jembatan antar bagian (promptPart, Base.itemFolder, Go Home, Go Safe)
+
+-- rarity: dibaca dari atribut/value "Rarity", kalau nggak ada dari kata di nama item
+Base.RARITIES = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Secret"}
+Base.rarityOf = function(inst)
+    local v = inst:GetAttribute("Rarity")
+    if type(v) == "string" and v ~= "" then return v:lower() end
+    local c = inst:FindFirstChild("Rarity")
+    if c and c:IsA("ValueBase") then
+        local ok, val = pcall(function() return c.Value end)
+        if ok and type(val) == "string" and val ~= "" then return val:lower() end
+    end
+    local n = inst.Name:lower()
+    for i = #Base.RARITIES, 1, -1 do -- dari yang paling langka, biar "uncommon" nggak kebaca "common"
+        local r = Base.RARITIES[i]:lower()
+        if n:find(r, 1, true) then return r end
+    end
+end
+-- set kosong = semua lolos; rarity nggak kebaca = lolos
+Base.rarityPass = function(inst, set)
+    if not set or next(set) == nil then return true end
+    local r = Base.rarityOf(inst)
+    if not r then return true end
+    return set[r] == true
+end
+
+-- dropdown pilih banyak (1 baris, buka -> centang). emptyText = teks saat nggak ada yang dipilih
+function Base.multiSelect(parent, name, options, cb, emptyText)
+    emptyText = emptyText or "All"
+    local wrap = new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextOrd()}, parent)
+    new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, wrap)
+    local row = new("Frame", {Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = 0}, wrap)
+    reg(wrap, name)
+    label(row, name, 12, C.text, F, UDim2.new(), UDim2.new(0.42, 0, 1, 0))
+    local btn = new("TextButton", {
+        Size = UDim2.new(0.58, 0, 1, 0), Position = UDim2.new(0.42, 0, 0, 0),
+        BackgroundColor3 = C.item, Text = "", AutoButtonColor = false,
+    }, row)
+    round(btn, 8)
+    stroke(btn)
+    pressFx(btn, 8)
+    local cur = label(btn, emptyText, 11, C.text, FM, UDim2.fromOffset(10, 0), UDim2.new(1, -30, 1, 0))
+    ico(btn, "chevdown", 11, C.mute, UDim2.new(1, -22, 0, 0), UDim2.fromOffset(16, 30))
+    local list = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.card,
+        BorderSizePixel = 0, Visible = false, LayoutOrder = 1,
+    }, wrap)
+    round(list, 8)
+    stroke(list)
+    new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, list)
+    new("UIPadding", {PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3), PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3)}, list)
+
+    local sel, boxes, allBox = {}, {}, nil
+    local function refresh(fire)
+        local names, lower = {}, {}
+        for _, o in ipairs(options) do
+            local on = sel[o] == true
+            boxes[o].BackgroundColor3 = on and C.accent or C.off
+            if on then names[#names + 1] = o lower[o:lower()] = true end
+        end
+        allBox.BackgroundColor3 = (#names == #options) and C.accent or C.off
+        cur.Text = (#names == 0) and emptyText or table.concat(names, ", ")
+        if fire then task.spawn(cb, lower) end
+    end
+    local function addRow(text, onClick)
+        local b = new("TextButton", {
+            Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.item, BackgroundTransparency = 1,
+            Text = "", AutoButtonColor = false, LayoutOrder = nextOrd(),
+        }, list)
+        round(b, 6)
+        pressFx(b, 6)
+        label(b, text, 11, C.text, F, UDim2.fromOffset(8, 0), UDim2.new(1, -34, 1, 0))
+        local box = new("Frame", {
+            Size = UDim2.fromOffset(12, 12), Position = UDim2.new(1, -22, 0.5, -6),
+            BackgroundColor3 = C.off, BorderSizePixel = 0,
+        }, b)
+        round(box, 3)
+        b.Activated:Connect(onClick)
+        return box
+    end
+    allBox = addRow("Select all", function()
+        local full = true
+        for _, o in ipairs(options) do if not sel[o] then full = false end end
+        sel = {}
+        if not full then for _, o in ipairs(options) do sel[o] = true end end
+        refresh(true)
+    end)
+    for _, o in ipairs(options) do
+        boxes[o] = addRow(o, function()
+            sel[o] = (not sel[o]) or nil
+            refresh(true)
+        end)
+    end
+    btn.Activated:Connect(function() list.Visible = not list.Visible end)
+    refresh(false)
+    local h = {
+        get = function()
+            local t = {}
+            for _, o in ipairs(options) do if sel[o] then t[#t + 1] = o end end
+            return t
+        end,
+        set = function(v)
+            sel = {}
+            if type(v) == "table" then
+                for _, o in ipairs(v) do
+                    for _, op in ipairs(options) do if op == o then sel[op] = true end end
+                end
+            end
+            refresh(true)
+        end,
+    }
+    Controls[name] = h
+    return h
+end
 local origLight = {
     Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
     GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
@@ -1769,6 +1887,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     -- ===== EGG FARM: auto place, auto hatch, auto farm =====
     State.AutoPlaceEgg, State.AutoHatch, State.AutoFarmEgg = false, false, false
     State.EggDelay, State.EggRange = 1.5, 25
+    State.EggRarity = {}
     State.BaseRadius, State.PlaceMode, State.AutoCollectBase = 60, "Auto", false
 
     local function pText(p)
@@ -1785,14 +1904,14 @@ local buildClient -- kartu Client dipasang di tab Settings
         local ch = lp.Character
         if not ch then return nil end
         for _, t in ipairs(ch:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("egg") then return t end
+            if t:IsA("Tool") and t.Name:lower():find("egg") and Base.rarityPass(t, State.EggRarity) then return t end
         end
     end
     local function firstEggTool()
         local bp = lp:FindFirstChildOfClass("Backpack")
         if not bp then return nil end
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("egg") then return t end
+            if t:IsA("Tool") and t.Name:lower():find("egg") and Base.rarityPass(t, State.EggRarity) then return t end
         end
     end
     -- cari prompt berdasarkan kata kunci. mineOnly = cuma yang ada di base sendiri.
@@ -1860,7 +1979,9 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     local hatchCd = setmetatable({}, {__mode = "k"})
     local function doHatch()
-        for _, e in ipairs(findPrompts({"hatch"}, true)) do
+        local hl = findPrompts({"hatch"}, true)
+        if #hl == 0 and Base.trigger then Base.trigger({"hatch"}) end -- fallback: tombol UI / remote
+        for _, e in ipairs(hl) do
             if atSafe or not (State.AutoHatch or State.AutoFarmEgg) then return end
             if not pText(e.p):find("steal", 1, true) and (not hatchCd[e.p] or os.clock() - hatchCd[e.p] > State.HatchCd) then
                 hatchCd[e.p] = os.clock()
@@ -1944,6 +2065,9 @@ local buildClient -- kartu Client dipasang di tab Settings
         end
     end
 
+    Base.useAt, Base.findPrompts, Base.pText = useAt, findPrompts, pText
+    Base.atSafe = function() return atSafe end
+
     local eggBusy = false
     task.spawn(function()
         while alive do
@@ -1966,6 +2090,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     toggle(eg, "Auto Hatch Egg", false, function(v) State.AutoHatch = v end)
     toggle(eg, "Auto Farm Egg", false, function(v) State.AutoFarmEgg = v end)
     toggle(eg, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
+    Base.multiSelect(eg, "Egg Rarities", Base.RARITIES, function(set) State.EggRarity = set end, "All")
     slider(eg, "Egg Delay", 300, 5000, 1500, function(v) State.EggDelay = v / 1000 end, "ms")
 
     -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
@@ -2086,6 +2211,336 @@ local buildClient -- kartu Client dipasang di tab Settings
     end
 end)()
 
+-- ===== FITUR BARU: Rebirth, Sell, God Mode, Debug =====
+;(function()
+    local RS = game:GetService("ReplicatedStorage")
+    local GuiService = game:GetService("GuiService")
+    local VIM
+    pcall(function() VIM = game:GetService("VirtualInputManager") end)
+    State.AutoRebirth, State.AutoSell, State.GodMode = false, false, false
+    State.SellRarity, State.KeepMutated = {}, true
+
+    -- cache remote
+    local remotes = {}
+    local function addRemote(d)
+        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then remotes[d] = d.Name:lower() end
+    end
+    task.spawn(function()
+        for i, d in ipairs(RS:GetDescendants()) do
+            addRemote(d)
+            if i % 3000 == 0 then task.wait() end
+        end
+    end)
+    track(RS.DescendantAdded:Connect(addRemote))
+    track(RS.DescendantRemoving:Connect(function(d) remotes[d] = nil end))
+
+    local DENY = {"robux", "r$", "buy", "skip", "gift", "purchase", "gamepass", "trade", "delete", "steal", "product"}
+    local function denied(tx)
+        for _, x in ipairs(DENY) do
+            if tx:find(x, 1, true) then return true end
+        end
+        return false
+    end
+    local function has(tx, w, whole)
+        if whole then return (" " .. tx .. " "):find("%A" .. w .. "%A") ~= nil end
+        return tx:find(w, 1, true) ~= nil
+    end
+    local function shown(d)
+        local cur = d
+        while cur and cur ~= game do
+            if cur:IsA("GuiObject") and not cur.Visible then return false end
+            if cur:IsA("ScreenGui") and not cur.Enabled then return false end
+            cur = cur.Parent
+        end
+        return true
+    end
+    local function asButton(d)
+        local cur = d
+        for _ = 1, 4 do
+            if not cur or cur:IsA("LayerCollector") then return nil end
+            if cur:IsA("GuiButton") then return cur end
+            cur = cur.Parent
+        end
+    end
+    local function btnTexts(b)
+        local t = {b.Name:lower()}
+        if b:IsA("TextButton") then t[#t + 1] = b.Text:lower() end
+        for _, d in ipairs(b:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then t[#t + 1] = d.Text:lower() end
+        end
+        return table.concat(t, " ")
+    end
+    -- cari tombol UI yang kelihatan dan teks/namanya cocok kata kunci
+    local function findButtons(words, whole)
+        local pg = lp:FindFirstChildOfClass("PlayerGui")
+        local out, seen = {}, {}
+        if not pg then return out end
+        for i, d in ipairs(pg:GetDescendants()) do
+            if d:IsA("GuiButton") or d:IsA("TextLabel") then
+                local own = d.Name:lower()
+                if d:IsA("TextLabel") or d:IsA("TextButton") then own = own .. " " .. d.Text:lower() end
+                for _, w in ipairs(words) do
+                    if has(own, w, whole) then
+                        local b = asButton(d)
+                        if b and not seen[b] and shown(b) then
+                            local tx = btnTexts(b)
+                            if not denied(tx) then
+                                seen[b] = true
+                                out[#out + 1] = {b = b, tx = tx}
+                            end
+                        end
+                        break
+                    end
+                end
+            end
+            if i % 3000 == 0 then task.wait() end
+        end
+        return out
+    end
+    local function fireBtn(b)
+        if getconnections then
+            for _, ev in ipairs({b.Activated, b.MouseButton1Click, b.MouseButton1Down, b.MouseButton1Up}) do
+                local ok, cs = pcall(getconnections, ev)
+                if ok and type(cs) == "table" and #cs > 0 then
+                    for _, c in ipairs(cs) do pcall(function() c:Fire() end) end
+                    return true
+                end
+            end
+        end
+        -- fallback: klik layar beneran (dilewati kalau kena menu hub ini)
+        if VIM and b.AbsoluteSize.X > 0 then
+            local pos = b.AbsolutePosition + b.AbsoluteSize / 2
+            local sg = b:FindFirstAncestorOfClass("ScreenGui")
+            if sg and not sg.IgnoreGuiInset then pos = pos + GuiService:GetGuiInset() end
+            if main.Visible then
+                local mp, ms = main.AbsolutePosition, main.AbsoluteSize
+                if pos.X >= mp.X and pos.X <= mp.X + ms.X and pos.Y >= mp.Y and pos.Y <= mp.Y + ms.Y then return false end
+            end
+            return pcall(function()
+                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+                task.wait(0.05)
+                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+            end)
+        end
+        return false
+    end
+    local RDENY = {"buy", "purchase", "robux", "gift", "steal", "trade", "delete", "product", "gamepass", "skip"}
+    local function fireRemote(words)
+        local fired = false
+        for r, n in pairs(remotes) do
+            for _, w in ipairs(words) do
+                if n:find(w, 1, true) then
+                    local bad = false
+                    for _, x in ipairs(RDENY) do
+                        if n:find(x, 1, true) then bad = true break end
+                    end
+                    if not bad then
+                        task.spawn(pcall, function()
+                            if r:IsA("RemoteEvent") then r:FireServer() else r:InvokeServer() end
+                        end)
+                        fired = true
+                    end
+                    break
+                end
+            end
+        end
+        return fired
+    end
+    Base.clickGui = function(words, whole)
+        for _, c in ipairs(findButtons(words, whole)) do
+            if fireBtn(c.b) then return true end
+        end
+        return false
+    end
+    Base.trigger = function(words)
+        return Base.clickGui(words) or fireRemote(words)
+    end
+
+    -- ===== Auto Rebirth =====
+    task.spawn(function()
+        while alive do
+            task.wait(3)
+            if State.AutoRebirth then
+                pcall(function()
+                    local cands = findButtons({"rebirth"})
+                    local did = false
+                    for _, c in ipairs(cands) do
+                        local pct = c.tx:match("(%d+)%s*%%")
+                        if not pct or tonumber(pct) >= 100 then
+                            if fireBtn(c.b) then did = true break end
+                        end
+                    end
+                    if did then
+                        task.wait(0.7)
+                        if not Base.clickGui({"confirm", "yes"}, true) then Base.clickGui({"rebirth now"}) end
+                    elseif #cands == 0 then
+                        fireRemote({"rebirth"})
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ===== Auto Sell (cuma item Tool yang rarity-nya kebaca dan dipilih) =====
+    local function sellOnce()
+        local sel = State.SellRarity
+        if next(sel) == nil then return end
+        local bp, h = lp:FindFirstChildOfClass("Backpack"), hum()
+        if not (bp and h) then return end
+        local list = {}
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") then
+                local r = Base.rarityOf(t)
+                if r and sel[r] then
+                    local mut = t.Name:lower():find("mutat", 1, true) or t:GetAttribute("Mutated") or t:GetAttribute("Mutation")
+                    if not (State.KeepMutated and mut) then list[#list + 1] = t end
+                end
+            end
+        end
+        for i = 1, math.min(#list, 8) do
+            if not State.AutoSell or (Base.atSafe and Base.atSafe()) then return end
+            h:EquipTool(list[i])
+            task.wait(0.2)
+            local done = false
+            if fireproximityprompt then
+                for _, e in ipairs(Base.findPrompts({"sell"}, false)) do
+                    if not Base.pText(e.p):find("steal", 1, true) then
+                        Base.useAt(e.pos, function() fireproximityprompt(e.p) end)
+                        done = true
+                        break
+                    end
+                end
+            end
+            if not done then Base.trigger({"sell"}) end
+            task.wait(0.3)
+        end
+        pcall(function() h:UnequipTools() end)
+    end
+    task.spawn(function()
+        while alive do
+            task.wait(2)
+            if State.AutoSell then pcall(sellOnce) end
+        end
+    end)
+
+    -- ===== God Mode: kunci health lokal, anti knockback / ragdoll / stun =====
+    local lastVel = Vector3.zero
+    local function setStates(on)
+        local h = hum()
+        if not h then return end
+        for _, st in ipairs({Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.FallingDown}) do
+            pcall(function() h:SetStateEnabled(st, on) end)
+        end
+    end
+    Base.setGod = function(v)
+        State.GodMode = v
+        lastVel = Vector3.zero
+        setStates(not v)
+    end
+    track(lp.CharacterAdded:Connect(function()
+        task.wait(1)
+        lastVel = Vector3.zero
+        if State.GodMode then setStates(false) end
+    end))
+    track(RunService.Heartbeat:Connect(function()
+        if not State.GodMode then return end
+        local h, r = hum(), root()
+        if not (h and r) then return end
+        if h.Health > 0 and h.Health < h.MaxHealth then pcall(function() h.Health = h.MaxHealth end) end
+        if h.PlatformStand and not State.Fly then h.PlatformStand = false end
+        local st = h:GetState()
+        if st == Enum.HumanoidStateType.Ragdoll or st == Enum.HumanoidStateType.FallingDown then
+            h:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        local v = r.AssemblyLinearVelocity
+        local limit = math.max(70, (State.WalkSpeed and State.Speed or 16) * 2.5, State.Fly and State.FlySpeed * 2.5 or 0)
+        local dx, dz = v.X - lastVel.X, v.Z - lastVel.Z
+        if math.sqrt(dx * dx + dz * dz) > limit then
+            r.AssemblyLinearVelocity = Vector3.new(lastVel.X, v.Y, lastVel.Z)
+            v = r.AssemblyLinearVelocity
+        end
+        lastVel = v
+        if r.AssemblyAngularVelocity.Magnitude > 30 then r.AssemblyAngularVelocity = Vector3.zero end
+    end))
+
+    -- ===== Debug dump (kirim hasilnya biar nama remote/tombol game bisa dipasang pas) =====
+    local function dump()
+        local L = {}
+        local function add(x) L[#L + 1] = tostring(x):sub(1, 200) end
+        add("== Risyadh Debug ==")
+        add("Place " .. game.PlaceId .. " | " .. tostring(env.RisyadhGameName))
+        add("-- Remotes")
+        local rl = {}
+        for r in pairs(remotes) do rl[#rl + 1] = r.ClassName .. " " .. r:GetFullName() end
+        table.sort(rl)
+        for i = 1, math.min(#rl, 300) do add(rl[i]) end
+        add("-- Buttons (kelihatan)")
+        local pg = lp:FindFirstChildOfClass("PlayerGui")
+        local n = 0
+        if pg then
+            for i, d in ipairs(pg:GetDescendants()) do
+                if d:IsA("GuiButton") and shown(d) and n < 200 then
+                    n += 1
+                    add(d:GetFullName() .. " | " .. btnTexts(d):sub(1, 60))
+                end
+                if i % 3000 == 0 then task.wait() end
+            end
+        end
+        add("-- Tools")
+        local function tl(c)
+            if not c then return end
+            for _, t in ipairs(c:GetChildren()) do
+                if t:IsA("Tool") then
+                    local a = {}
+                    for k, v in pairs(t:GetAttributes()) do a[#a + 1] = k .. "=" .. tostring(v) end
+                    for _, ch in ipairs(t:GetChildren()) do
+                        if ch:IsA("ValueBase") then a[#a + 1] = ch.Name .. "=" .. tostring(ch.Value) end
+                    end
+                    add(t.Name .. " {" .. table.concat(a, ", ") .. "}")
+                end
+            end
+        end
+        tl(lp:FindFirstChildOfClass("Backpack"))
+        tl(lp.Character)
+        add("-- Prompts")
+        local seenP, c2 = {}, 0
+        for p in pairs(prompts) do
+            local k = (p.ActionText or "") .. " / " .. (p.ObjectText or "") .. " / " .. (p.Parent and p.Parent.Name or "")
+            if not seenP[k] and c2 < 80 then seenP[k] = true c2 += 1 add(k) end
+        end
+        add("-- Player")
+        for k, v in pairs(lp:GetAttributes()) do add(k .. "=" .. tostring(v)) end
+        local ls = lp:FindFirstChild("leaderstats")
+        if ls then
+            for _, ch in ipairs(ls:GetChildren()) do
+                if ch:IsA("ValueBase") then add(ch.Name .. "=" .. tostring(ch.Value)) end
+            end
+        end
+        local text = table.concat(L, "\n")
+        local ok = false
+        if setclipboard then ok = pcall(setclipboard, text) end
+        if writefile then pcall(writefile, "RisyadhHub_debug.txt", text) end
+        return ok
+    end
+
+    -- ===== UI =====
+    local sellC = card(el, "Auto Sell", I.pointer)
+    toggle(sellC, "Auto Sell", false, function(v) State.AutoSell = v end)
+    Base.multiSelect(sellC, "Sell Rarities", Base.RARITIES, function(set) State.SellRarity = set end, "None")
+    toggle(sellC, "Keep Mutated", true, function(v) State.KeepMutated = v end)
+
+    local rbC = card(er, "Rebirth", I.badge)
+    toggle(rbC, "Auto Rebirth", false, function(v) State.AutoRebirth = v end)
+
+    local dbC = card(er, "Debug", I.sys)
+    local dbBtn
+    dbBtn = button(dbC, "Copy Debug Info", function()
+        flash(dbBtn, "...", "Copy Debug Info")
+        local ok = dump()
+        flash(dbBtn, ok and "Tersalin" or "Cek file", "Copy Debug Info")
+    end)
+end)()
+
 -- ===== PLAYER =====
 do
 local player = newTab("Player", I.player)
@@ -2099,6 +2554,7 @@ end)
 slider(mv, "Speed", 16, 200, State.Speed, function(v) State.Speed = v end)
 toggle(mv, "Infinite Jump", false, function(v) State.InfJump = v end)
 toggle(mv, "Noclip", false, function(v) State.Noclip = v end)
+toggle(mv, "God Mode", false, function(v) if Base.setGod then Base.setGod(v) end end)
 toggle(mv, "Jump Power", false, function(v)
     State.JumpOn = v
     if not v then local h = hum() if h then h.JumpPower = 50 end end
@@ -2272,7 +2728,7 @@ local function applyFab(v)
 end
 dropdown(menuC, "Toggle button", {"Always", "Mobile only", "Hidden"}, "Always", applyFab)
 -- matiin semua fitur sekaligus (darurat). Toggle tampilan bawaan-ON dibiarkan.
-local keepOn = {["Highlight"] = true, ["Show Distance"] = true, ["TP to Safe after Steal"] = true}
+local keepOn = {["Highlight"] = true, ["Show Distance"] = true, ["TP to Safe after Steal"] = true, ["Keep Mutated"] = true}
 button(menuC, "Disable All Features", function()
     for k, h in pairs(Controls) do
         if not keepOn[k] then
