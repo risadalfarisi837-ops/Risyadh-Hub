@@ -2472,7 +2472,21 @@ local buildClient -- kartu Client dipasang di tab Settings
     -- Client: dipasang di tab Settings lewat buildClient(kolom)
     buildClient = function(col)
         local cl = card(col, "Client", I.sys)
-        toggle(cl, "Anti AFK", false, function(v) State.AntiAFK = v end)
+        -- No Gameplay Paused: matiin pause streaming (kalau executor bisa nulis property-nya)
+        local function noPause(v)
+            if not v then return end
+            pcall(function() workspace.StreamingIntegrityMode = Enum.StreamingIntegrityMode.Disabled end)
+            if sethiddenproperty then
+                pcall(sethiddenproperty, workspace, "StreamingIntegrityMode", Enum.StreamingIntegrityMode.Disabled)
+            end
+        end
+        toggle(cl, "No Gameplay Paused", true, function(v) State.NoPause = v noPause(v) end)
+        task.spawn(function()
+            while alive do
+                if State.NoPause then noPause(true) end
+                task.wait(5)
+            end
+        end)
         local GuiService = game:GetService("GuiService")
         local reconnecting = false
         local function reconnect()
@@ -2509,11 +2523,19 @@ local buildClient -- kartu Client dipasang di tab Settings
                 end
             end)
         end)
+        toggle(cl, "Disable 3D Rendering", false, function(v)
+            pcall(function() RunService:Set3dRenderingEnabled(not v) end)
+        end)
         toggle(cl, "FPS Boost", false, function(v)
             pcall(function()
                 settings().Rendering.QualityLevel = v and Enum.QualityLevel.Level01 or Enum.QualityLevel.Automatic
             end)
         end)
+        toggle(cl, "Hide UI On Start", false, function(v) State.HideOnStart = v end)
+        task.delay(2, function()
+            if State.HideOnStart and setMenu then pcall(setMenu, false) end
+        end)
+        toggle(cl, "Anti AFK", false, function(v) State.AntiAFK = v end)
         toggle(cl, "Unlock FPS", false, function(v)
             if setfpscap then pcall(setfpscap, v and 240 or 60) end
         end)
@@ -2980,6 +3002,13 @@ end)
 slider(mv, "Speed", 16, 200, State.Speed, function(v) State.Speed = v end)
 toggle(mv, "Infinite Jump", false, function(v) State.InfJump = v end)
 toggle(mv, "Noclip", false, function(v) State.Noclip = v end)
+toggle(mv, "Instant ProximityPrompt", false, function(v) State.InstantPP = v end)
+track(PPS.PromptShown:Connect(function(p)
+    if State.InstantPP then pcall(function() p.HoldDuration = 0 end) end
+end))
+track(PPS.PromptButtonHoldBegan:Connect(function(p, plr)
+    if State.InstantPP and plr == lp then Base.fireP(p) end
+end))
 toggle(mv, "God Mode", false, function(v) if Base.setGod then Base.setGod(v) end end)
 toggle(mv, "Jump Power", false, function(v)
     State.JumpOn = v
@@ -2990,6 +3019,8 @@ button(mv, "Reset Character", function()
     local h = hum()
     if h then h.Health = 0 end
 end)
+
+buildClient(pl) -- kartu Client (No Gameplay Paused, Reconnect, 3D Rendering, FPS, Hide UI) di bawah Movement
 
 local fl = card(pr, "Fly", I.fly)
 toggle(fl, "Fly", false, function(v)
@@ -3169,7 +3200,6 @@ end)
 button(menuC, "Unload Hub", function()
     if env.RisyadhUnload then env.RisyadhUnload() end
 end)
-buildClient(sl)
 
 -- Configs
 local cfgC = card(sr, "Configs", "folder")
@@ -3438,6 +3468,7 @@ end
 env.RisyadhUnload = function()
     env.RisyadhNotify = nil
     pcall(restoreAll)
+    pcall(function() RunService:Set3dRenderingEnabled(true) end)
     for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
     stopFly()
     local h = hum()
