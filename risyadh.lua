@@ -1795,8 +1795,7 @@ end
 local ml, mr = twoCol(mainTab)
 
 -- tab Egg: Egg Farm + pengaturan base sendiri
-local eggTab = newTab("Egg", I.badge, "Egg Farm")
-local el, er = twoCol(eggTab)
+local el, er = ml, mr -- tab Egg digabung ke Main
 local buildClient -- kartu Client dipasang di tab Settings
 
 -- ===== AUTO: Treadmill, Safe Spot, Reconnect =====
@@ -1807,6 +1806,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     State.AutoReconnect = false
     State.AutoSteal, State.StealRange, State.StealTP, State.StealDelay, State.Steals = false, 15, true, 300, 0
     State.StealFar = 150
+    State.StealRarity = {}
 
     local treadCF, safeCF, lastCF, homeCF
     local homeAuto = false -- true = Home diset otomatis dari titik respawn (manual Set Home menimpa ini)
@@ -2115,6 +2115,7 @@ local buildClient -- kartu Client dipasang di tab Settings
                     local best, bd, bpos
                     for p in pairs(prompts) do
                         if p.Parent and p.Enabled and isSteal(p) and not isMine(p)
+                            and Base.rarityPass(p.Parent, State.StealRarity)
                             and (not handled[p] or os.clock() - handled[p] > 1.5) then
                             local par = p.Parent
                             local pos = (par:IsA("BasePart") and par.Position) or (par:IsA("Attachment") and par.WorldPosition)
@@ -2138,8 +2139,10 @@ local buildClient -- kartu Client dipasang di tab Settings
         end
     end)
 
-    local as = card(ml, "Auto Steal", I.pointer)
+    local as = card(ml, "Steal", I.pointer)
+    as.Parent.LayoutOrder = 1
     toggle(as, "Auto Steal", false, function(v) State.AutoSteal = v end)
+    Base.multiSelect(as, "Rarities", Base.RARITIES, function(set) State.StealRarity = set end, "All")
     slider(as, "Steal Range", 5, 60, 15, function(v) State.StealRange = v end, " st")
     slider(as, "Search Range", 15, 400, 150, function(v) State.StealFar = v end, " st")
     toggle(as, "TP to Safe after Steal", true, function(v) State.StealTP = v end)
@@ -2147,6 +2150,7 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     -- Safe spot
     local sf = card(ml, "Safe Spot", "pin")
+    sf.Parent.LayoutOrder = 10
     toggle(sf, "Auto TP on Pickup", false, function(v) State.AutoSafe = v end)
     dropdown(sf, "Pickup Filter", {"Egg/Brainrot", "Any tool"}, "Egg/Brainrot", function(v) State.PickFilter = v end)
     slider(sf, "Return After", 0, 30, 0, function(v) State.ReturnDelay = v end, "s")
@@ -2387,9 +2391,11 @@ local buildClient -- kartu Client dipasang di tab Settings
         end
     end)
 
-    local eg = card(el, "Egg Farm", I.badge)
-    toggle(eg, "Auto Place Egg", false, function(v) State.AutoPlaceEgg = v end)
-    toggle(eg, "Auto Hatch Egg", false, function(v) State.AutoHatch = v end)
+    local eg = card(er, "Eggs and Pets", I.badge)
+    eg.Parent.LayoutOrder = 1
+    toggle(eg, "Auto Place Eggs", false, function(v) State.AutoPlaceEgg = v end)
+    toggle(eg, "Auto Hatch Eggs", false, function(v) State.AutoHatch = v end)
+    toggle(eg, "Auto Equip Best", false, function(v) State.AutoEquipBest = v end)
     toggle(eg, "Auto Farm Egg", false, function(v) State.AutoFarmEgg = v end)
     toggle(eg, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
     Base.multiSelect(eg, "Egg Rarities", Base.RARITIES, function(set) State.EggRarity = set end, "All")
@@ -2397,6 +2403,7 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
     local mb = card(er, "My Base", I.home)
+    mb.Parent.LayoutOrder = 10
     btnPair(mb, "Set Home", function(b, t)
         local r = root()
         if r then homeCF = r.CFrame homeAuto = false flash(b, "Tersimpan", t) end
@@ -2691,10 +2698,48 @@ end)()
         local bp, h = lp:FindFirstChildOfClass("Backpack"), hum()
         if not (bp and h) then return end
         local list = {}
+        local function rIdx(t)
+            local r = Base.rarityOf(t)
+            for i, n in ipairs(Base.RARITIES) do if r == n:lower() then return i end end
+            return 0
+        end
+        local function valOf(t)
+            for _, k in ipairs({"Value", "Worth", "Price", "Cost", "Weight", "Size"}) do
+                local v = t:GetAttribute(k)
+                if type(v) == "number" then return v end
+            end
+        end
+        -- "Keep Best Of Each Type": amankan N terbaik per nama (rarity dulu, baru value)
+        local protect = {}
+        local keepN = State.KeepBest or 0
+        if keepN > 0 then
+            local groups = {}
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") then
+                    local g = groups[t.Name]
+                    if not g then g = {} groups[t.Name] = g end
+                    g[#g + 1] = t
+                end
+            end
+            for _, g in pairs(groups) do
+                table.sort(g, function(a, b)
+                    local ra, rb = rIdx(a), rIdx(b)
+                    if ra ~= rb then return ra > rb end
+                    return (valOf(a) or 0) > (valOf(b) or 0)
+                end)
+                for i = 1, math.min(keepN, #g) do protect[g[i]] = true end
+            end
+        end
+        local sType = State.SellType or "All"
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") then
+            if t:IsA("Tool") and not protect[t] then
                 local r = Base.rarityOf(t)
-                if r and sel[r] then
+                local isEgg = t.Name:lower():find("egg", 1, true) ~= nil
+                local typeOk = sType == "All" or (sType == "Egg" and isEgg) or (sType == "Pet" and not isEgg)
+                local below = State.SellBelow or 0
+                local v = valOf(t)
+                local belowOk = below <= 0 or not v or v < below
+                if typeOk and belowOk and r and sel[r] then
                     local mut = t.Name:lower():find("mutat", 1, true) or t:GetAttribute("Mutated") or t:GetAttribute("Mutation")
                     if not (State.KeepMutated and mut) then list[#list + 1] = t end
                 end
@@ -2827,15 +2872,93 @@ end)()
     end
 
     -- ===== UI =====
-    local sellC = card(el, "Auto Sell", I.pointer)
+    do
+    -- input angka (dipakai "Only Sell Below...")
+    local function numInput(parent, name, default, cb)
+        local row = new("Frame", {Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = nextOrd()}, parent)
+        reg(row, name)
+        label(row, name, 12, C.text, F, UDim2.new(), UDim2.new(0.42, 0, 1, 0))
+        local box = new("TextBox", {
+            Size = UDim2.new(0.58, 0, 1, 0), Position = UDim2.new(0.42, 0, 0, 0),
+            BackgroundColor3 = C.item, Text = tostring(default), TextColor3 = C.text, Font = FM, TextSize = 11,
+            ClearTextOnFocus = false, TextXAlignment = LEFT, PlaceholderText = "0",
+        }, row)
+        round(box, 8)
+        stroke(box)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, box)
+        box.FocusLost:Connect(function()
+            local n = tonumber(box.Text) or 0
+            box.Text = tostring(n)
+            cb(n)
+        end)
+        return box
+    end
+
+    State.SellType, State.KeepBest, State.SellBelow = "Pet", 5, 0
+    local sellC = card(ml, "Selling", I.pointer)
+    sellC.Parent.LayoutOrder = 2
     toggle(sellC, "Auto Sell", false, function(v) State.AutoSell = v end)
+    dropdown(sellC, "Sell Types", {"Pet", "Egg", "All"}, "Pet", function(v) State.SellType = v end)
     Base.multiSelect(sellC, "Sell Rarities", Base.RARITIES, function(set) State.SellRarity = set end, "None")
     toggle(sellC, "Keep Mutated", true, function(v) State.KeepMutated = v end)
+    slider(sellC, "Keep Best Of Each Type", 0, 20, 5, function(v) State.KeepBest = v end)
+    numInput(sellC, "Only Sell Below...", 0, function(n) State.SellBelow = n end)
+
+    -- ===== Table (masak / makan) & Upgrades =====
+    -- game belum dikenal: tombol/remote dicari lewat teks. Jalankan "Copy Debug Info" kalau ada yang nggak nyambung.
+    State.AutoSit, State.AutoCook, State.AutoEat = false, false, false
+    State.CookCat, State.MaxDishes = "Main", 3
+    State.AutoTraits, State.TraitMax = false, "Infinity"
+    State.AutoUpPen, State.AutoUpTable, State.AutoEquipBest = false, false, false
+
+    local tbC = card(ml, "Table", "pin")
+    tbC.Parent.LayoutOrder = 3
+    toggle(tbC, "Auto Sit At Table", false, function(v) State.AutoSit = v end)
+    toggle(tbC, "Auto Cook", false, function(v) State.AutoCook = v end)
+    dropdown(tbC, "Cook Categories", {"Main", "Side", "Dessert", "Drink"}, "Main", function(v) State.CookCat = v end)
+    slider(tbC, "Max Dishes At Once", 1, 10, 3, function(v) State.MaxDishes = v end)
+    toggle(tbC, "Auto Eat", false, function(v) State.AutoEat = v end)
+
+    local upC = card(er, "Upgrades", "gauge")
+    upC.Parent.LayoutOrder = 2
+    toggle(upC, "Auto Buy Traits", false, function(v) State.AutoTraits = v end)
+    dropdown(upC, "Highest Trait To Buy", {"Common", "Rare", "Epic", "Legendary", "Mythic", "Infinity"}, "Infinity", function(v) State.TraitMax = v end)
+    toggle(upC, "Auto Upgrade Pen (+1 Equip)", false, function(v) State.AutoUpPen = v end)
+    toggle(upC, "Auto Upgrade Table", false, function(v) State.AutoUpTable = v end)
+
+    task.spawn(function()
+        local step = 0
+        while alive do
+            task.wait(1.5)
+            step += 1
+            if not (Base.atSafe and Base.atSafe()) then
+                pcall(function()
+                    if State.AutoSit then Base.trigger({"sit"}) end
+                    if State.AutoCook then
+                        for _ = 1, State.MaxDishes do
+                            if not State.AutoCook then break end
+                            Base.trigger({"cook", State.CookCat:lower()})
+                            task.wait(0.3)
+                        end
+                    end
+                    if State.AutoEat then Base.trigger({"eat"}) end
+                    if State.AutoEquipBest then Base.trigger({"equip best"}) end
+                    if State.AutoUpPen then Base.trigger({"upgrade pen"}) end
+                    if State.AutoUpTable then Base.trigger({"upgrade table"}) end
+                    if State.AutoTraits and step % 2 == 0 then Base.trigger({"trait"}) end
+                end)
+            end
+        end
+    end)
+
+    end
 
     local rbC = card(er, "Rebirth", I.badge)
+    rbC.Parent.LayoutOrder = 11
     toggle(rbC, "Auto Rebirth", false, function(v) State.AutoRebirth = v end)
 
     local dbC = card(er, "Debug", I.sys)
+    dbC.Parent.LayoutOrder = 12
     local dbBtn
     dbBtn = button(dbC, "Copy Debug Info", function()
         flash(dbBtn, "...", "Copy Debug Info")
