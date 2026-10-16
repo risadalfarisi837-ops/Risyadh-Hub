@@ -249,6 +249,21 @@ ICON.pin = function(b)
     b.poly({{5.7, 13}, {12, 22}, {18.3, 13}})
     b.ring(12, 10, 2.4)
 end
+ICON.chat = function(b)
+    b.rect(3, 4, 18, 13, 5)
+    b.poly({{8, 17}, {7, 21}, {12, 17}})
+end
+ICON.globe = function(b)
+    b.ring(12, 12, 9)
+    b.seg(3, 12, 21, 12)
+    b.rect(8, 3, 8, 18, 4)
+end
+ICON.listcheck = function(b)
+    b.poly({{3, 6}, {5, 8}, {9, 4}})
+    b.poly({{3, 16}, {5, 18}, {9, 14}})
+    b.seg(13, 6, 21, 6)
+    b.seg(13, 16, 21, 16)
+end
 local function drawIcon(box, name, col, px)
     local meta = iconMeta[box]
     if meta and meta.root then meta.root:Destroy() end
@@ -381,7 +396,7 @@ end
 
 -- pencarian
 local searchables = {}
-local function reg(row, name) searchables[#searchables + 1] = {row = row, name = name:lower()} end
+local function reg(row, name) searchables[#searchables + 1] = {row = row, name = name:lower(), raw = name} end
 
 -- ===== WINDOW =====
 local gui = new("ScreenGui", {
@@ -1420,7 +1435,7 @@ end
 local home = newTab("Home", I.home, "Welcome!")
 
 -- banner
-local banner = new("Frame", {Size = UDim2.new(1, 0, 0, 96), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd(), ClipsDescendants = true}, home)
+local banner = new("Frame", {Size = UDim2.new(1, 0, 0, 124), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd(), ClipsDescendants = true}, home)
 round(banner, 12)
 stroke(banner)
 label(banner, "WELCOME BACK", 9, C.mute, FM, UDim2.fromOffset(16, 14), UDim2.new(0.6, 0, 0, 14))
@@ -1428,9 +1443,44 @@ local nameLbl = label(banner, lp.DisplayName, 22, C.text, FB, UDim2.fromOffset(1
 local userLbl = label(banner, "@" .. lp.Name, 11, C.mute, F, UDim2.fromOffset(16, 60), UDim2.new(0.6, 0, 0, 16))
 local bust = new("ImageLabel", {
     BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, 0),
-    Size = UDim2.fromOffset(92, 92), ScaleType = Enum.ScaleType.Fit,
+    Size = UDim2.fromOffset(112, 112), ScaleType = Enum.ScaleType.Fit,
     Image = "rbxthumb://type=AvatarBust&id=" .. lp.UserId .. "&w=150&h=150",
 }, banner)
+
+local chipRow = new("Frame", {Position = UDim2.fromOffset(16, 86), Size = UDim2.new(0.62, 0, 0, 28), BackgroundTransparency = 1}, banner)
+new("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+}, chipRow)
+local function chip(glyph, txt, w, cb)
+    local b = new("TextButton", {
+        Size = UDim2.fromOffset(w, 28), BackgroundColor3 = C.item, Text = "",
+        AutoButtonColor = false, LayoutOrder = nextOrd(), Active = cb ~= nil,
+    }, chipRow)
+    round(b, 8)
+    stroke(b)
+    if cb then pressFx(b, 8) end
+    local ic = ico(b, glyph, 12, C.mute, UDim2.fromOffset(9, 0), UDim2.fromOffset(16, 28))
+    local lb = label(b, txt, 11, C.mute, FM, UDim2.fromOffset(30, 0), UDim2.new(1, -34, 1, 0))
+    if cb then b.Activated:Connect(function() cb(b, ic, lb) end) end
+    return b, ic, lb
+end
+local function chipState(ic, lb, on)
+    tint(ic, on and C.text or C.mute)
+    lb.TextColor3 = on and C.text or C.mute
+end
+chip(I.badge, "v2.3", 62)
+local nameHidden, avatarHidden = false, false
+chip(I.name, "Name", 68, function(_, ic, lb)
+    nameHidden = not nameHidden
+    nameLbl.Text = nameHidden and "Hidden" or lp.DisplayName
+    userLbl.Text = nameHidden and "@hidden" or ("@" .. lp.Name)
+    chipState(ic, lb, nameHidden)
+end)
+chip(I.avatar, "Avatar", 76, function(_, ic, lb)
+    avatarHidden = not avatarHidden
+    bust.Visible = not avatarHidden
+    chipState(ic, lb, avatarHidden)
+end)
 
 -- statistik
 local statsCard = new("Frame", {Size = UDim2.new(1, 0, 0, 152), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd()}, home)
@@ -1586,6 +1636,142 @@ end)
 local jid = game.JobId
 local jshort = (#jid > 14) and (jid:sub(1, 8) .. "..." .. jid:sub(-4)) or (jid ~= "" and jid or "-")
 label(gameCard, "Job " .. jshort .. "  ·  Place " .. game.PlaceId, 10, C.mute, F, UDim2.fromOffset(16, 144), UDim2.new(1, -32, 0, 16))
+
+-- ===== LINKS =====
+-- isi link kamu di sini (kosongin = tombol copy mati & tampil "Belum diisi")
+local HOME_LINKS = {
+    Community = "",
+    Website = "",
+}
+
+local linksCard = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = nextOrd(),
+}, home)
+round(linksCard, 12)
+stroke(linksCard)
+new("UIPadding", {PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16)}, linksCard)
+new("UIListLayout", {Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder}, linksCard)
+label(linksCard, "LINKS", 9, C.mute, FM, nil, UDim2.new(1, 0, 0, 20)).LayoutOrder = nextOrd()
+
+local function linkRow(glyph, title_, sub, last)
+    local r = new("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundTransparency = 1, LayoutOrder = nextOrd()}, linksCard)
+    if not last then
+        new("Frame", {AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.line, BorderSizePixel = 0}, r)
+    end
+    ico(r, glyph, 16, C.mute, UDim2.new(0, 0, 0, 0), UDim2.fromOffset(24, 52))
+    local t = label(r, title_, 12, C.text, FM, UDim2.fromOffset(36, 8), UDim2.new(1, -90, 0, 18))
+    local sb = label(r, sub, 10, C.mute, F, UDim2.fromOffset(36, 27), UDim2.new(1, -90, 0, 14))
+    local btn = new("TextButton", {
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(34, 34),
+        BackgroundColor3 = C.item, Text = "", AutoButtonColor = false,
+    }, r)
+    round(btn, 8)
+    stroke(btn)
+    pressFx(btn, 8)
+    return r, btn, sb
+end
+
+for _, def in ipairs({{"Community", I.chat or "chat"}, {"Website", "globe"}}) do
+    local key, glyph = def[1], def[2]
+    local url = HOME_LINKS[key] or ""
+    local _, btn = linkRow(glyph, key, url ~= "" and url or "Belum diisi", false)
+    local ic = ico(btn, I.copy, 14, url ~= "" and C.text or C.off, UDim2.new(), UDim2.fromOffset(34, 34))
+    btn.Activated:Connect(function()
+        if url == "" then return end
+        if setclipboard then
+            setclipboard(url)
+            if env.RisyadhNotify then env.RisyadhNotify(key, "Link tersalin") end
+        elseif env.RisyadhNotify then
+            env.RisyadhNotify(key, "Executor nggak support clipboard")
+        end
+    end)
+end
+
+-- Feature list (hitung otomatis dari semua fitur yang terdaftar di tiap tab)
+local featRow, featBtn, featSub = linkRow("listcheck", "Feature list", "...", true)
+local featChev = ico(featBtn, "chevright", 12, C.text, UDim2.new(), UDim2.fromOffset(34, 34))
+local featBody = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+    Visible = false, LayoutOrder = nextOrd(),
+}, linksCard)
+new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, featBody)
+new("UIPadding", {PaddingBottom = UDim.new(0, 10)}, featBody)
+
+local function buildFeatures()
+    for _, c in ipairs(featBody:GetChildren()) do
+        if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+    end
+    local total, tabCount = 0, 0
+    for _, t in ipairs(tabs) do
+        if t.page ~= home then
+            local names, seen = {}, {}
+            for _, sObj in ipairs(searchables) do
+                if sObj.row.Parent and sObj.row:FindFirstAncestorWhichIsA("ScrollingFrame") == t.page and not seen[sObj.raw] then
+                    seen[sObj.raw] = true
+                    names[#names + 1] = sObj.raw
+                end
+            end
+            if #names > 0 then
+                tabCount += 1
+                total += #names
+                label(featBody, t.lb.Text .. "  ·  " .. #names, 11, C.text, FM, nil, UDim2.new(1, 0, 0, 16)).LayoutOrder = nextOrd()
+                new("TextLabel", {
+                    BackgroundTransparency = 1, Text = table.concat(names, ", "), TextSize = 10, TextColor3 = C.mute, Font = F,
+                    TextWrapped = true, TextXAlignment = LEFT, TextYAlignment = Enum.TextYAlignment.Top,
+                    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrd(),
+                }, featBody)
+            end
+        end
+    end
+    featSub.Text = total .. " features across " .. tabCount .. " tabs"
+end
+featBtn.Activated:Connect(function()
+    buildFeatures()
+    featBody.Visible = not featBody.Visible
+    setIcon(featChev, featBody.Visible and "chevdown" or "chevright")
+end)
+task.delay(1, buildFeatures) -- tunggu semua tab selesai dibuat
+
+-- ===== STATUS EXECUTOR =====
+local exName = "Unknown"
+pcall(function()
+    if identifyexecutor then exName = tostring((identifyexecutor())) end
+    if exName == "" or exName == "nil" then exName = "Unknown" end
+end)
+local missing = {}
+do
+    local chk = {
+        {"fireproximityprompt", fireproximityprompt}, {"setclipboard", setclipboard},
+        {"writefile", writefile}, {"readfile", readfile}, {"isfile", isfile},
+        {"getcustomasset", getcustomasset},
+        {"request", request or http_request or (syn and syn.request)},
+    }
+    for _, c in ipairs(chk) do
+        if not c[2] then missing[#missing + 1] = c[1] end
+    end
+end
+local exOk = #missing == 0
+local exCol = exOk and C.ok or (#missing <= 2 and C.mid or C.low)
+local exMsg = exOk and "Your executor is supported and fully compatible."
+    or (#missing <= 2 and ("Partially compatible. Missing: " .. table.concat(missing, ", "))
+    or ("Limited support. Missing: " .. table.concat(missing, ", ")))
+
+local statusRow = new("Frame", {Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = nextOrd()}, home)
+local sDot = new("Frame", {Position = UDim2.fromOffset(4, 11), Size = UDim2.fromOffset(8, 8), BackgroundColor3 = exCol, BorderSizePixel = 0}, statusRow)
+round(sDot, 4)
+local exLbl = label(statusRow, exName, 11, C.text, FM, UDim2.fromOffset(20, 0), UDim2.fromOffset(#exName * 7 + 6, 30))
+label(statusRow, exMsg, 10, C.mute, F, UDim2.fromOffset(20 + #exName * 7 + 10, 0), UDim2.new(1, -(20 + #exName * 7 + 10 + 150), 1, 0))
+
+local hintWrap = new("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -2, 0.5, 0), Size = UDim2.fromOffset(146, 24), BackgroundTransparency = 1}, statusRow)
+label(hintWrap, "Tap the pill or", 10, C.mute, F, nil, UDim2.new(1, -52, 1, 0), Enum.TextXAlignment.Right)
+local keyPill = new("Frame", {
+    AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(46, 22),
+    BackgroundColor3 = C.item, BorderSizePixel = 0,
+}, hintWrap)
+round(keyPill, 8)
+stroke(keyPill)
+label(keyPill, "RCtrl", 10, C.text, FM, nil, nil, CENTER)
 
 -- ===== MAIN =====
 local mainTab = newTab("Main", I.main)
