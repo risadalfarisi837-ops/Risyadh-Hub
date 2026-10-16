@@ -36,6 +36,9 @@ local C = {
     good = Color3.fromRGB(235, 235, 235),
     warn = Color3.fromRGB(170, 170, 170),
     bad = Color3.fromRGB(110, 110, 110),
+    ok = Color3.fromRGB(80, 220, 120),
+    mid = Color3.fromRGB(255, 200, 60),
+    low = Color3.fromRGB(255, 80, 80),
 }
 local F = Enum.Font.Gotham
 local FM = Enum.Font.GothamMedium
@@ -473,7 +476,7 @@ else
     label(logo, "R", 16, Color3.new(1, 1, 1), FB, nil, nil, CENTER)
 end
 label(side, "Risyadh Hub", 13, C.text, FM, UDim2.fromOffset(52, 13), UDim2.new(1, -58, 0, 18))
-label(side, "v2.1", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
+label(side, "v2.2", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
 
 local tabList = new("Frame", {Position = UDim2.fromOffset(8, 66), Size = UDim2.new(1, -16, 1, -150), BackgroundTransparency = 1}, side)
 new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, tabList)
@@ -980,6 +983,22 @@ Base.rarityOf = function(inst)
         if n:find(r, 1, true) then return r end
     end
 end
+-- tembak ProximityPrompt: hold 0, tanpa line of sight, jarak diperlebar
+Base.fireP = function(p)
+    pcall(function()
+        p.HoldDuration = 0
+        p.RequiresLineOfSight = false
+        if p.MaxActivationDistance < 40 then p.MaxActivationDistance = 40 end
+    end)
+    if fireproximityprompt then
+        return (pcall(fireproximityprompt, p))
+    end
+    return (pcall(function()
+        p:InputHoldBegin()
+        task.wait(0.05)
+        p:InputHoldEnd()
+    end))
+end
 -- set kosong = semua lolos; rarity nggak kebaca = lolos
 Base.rarityPass = function(inst, set)
     if not set or next(set) == nil then return true end
@@ -1329,9 +1348,10 @@ stroke(statsCard)
 local N = 30
 local function makeBars(parent, pos, sz)
     local holder = new("Frame", {BackgroundTransparency = 1, Position = pos, Size = sz}, parent)
-    local bars, hist = {}, {}
+    local bars, hist, cols = {}, {}, {}
     for i = 1, N do
         hist[i] = 0
+        cols[i] = C.off
         bars[i] = new("Frame", {
             AnchorPoint = Vector2.new(0, 1), Position = UDim2.new((i - 1) / N, 0, 1, 0),
             Size = UDim2.new(1 / N, -2, 0, 10), BackgroundColor3 = C.off, BorderSizePixel = 0,
@@ -1341,10 +1361,13 @@ local function makeBars(parent, pos, sz)
     return function(v, max, col)
         table.remove(hist, 1)
         hist[#hist + 1] = v
+        table.remove(cols, 1)
+        cols[#cols + 1] = col
         for i = 1, N do
             local h = math.clamp(hist[i] / max, 0, 1)
             bars[i].Size = UDim2.new(1 / N, -2, 0, 10 + math.floor(h * 10))
-            bars[i].BackgroundColor3 = (i == N) and col or C.off
+            bars[i].BackgroundColor3 = cols[i]
+            bars[i].BackgroundTransparency = (i == N) and 0 or 0.45
         end
     end
 end
@@ -1378,14 +1401,14 @@ track(RunService.RenderStepped:Connect(function(dt)
     if acc < 0.5 then return end
     local fps = math.floor(frames / acc + 0.5)
     frames, acc = 0, 0
-    local fc = fps >= 50 and C.good or (fps >= 30 and C.warn or C.bad)
+    local fc = fps >= 45 and C.ok or (fps >= 25 and C.mid or C.low)
     fpsVal.Text = tostring(fps)
     fpsVal.TextColor3 = fc
     fpsBars(fps, 120, fc)
 
     local ping = 0
     pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5) end)
-    local pc = ping <= 100 and C.good or (ping <= 200 and C.warn or C.bad)
+    local pc = ping <= 100 and C.ok or (ping <= 220 and C.mid or C.low)
     pingVal.Text = ping .. "ms"
     pingVal.TextColor3 = pc
     pingBars(ping, 300, pc)
@@ -1505,6 +1528,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     State.AutoSafe, State.PickFilter, State.ReturnDelay = false, "Egg/Brainrot", 0
     State.AutoReconnect = false
     State.AutoSteal, State.StealRange, State.StealTP, State.StealDelay, State.Steals = false, 15, true, 300, 0
+    State.StealFar = 150
 
     local treadCF, safeCF, lastCF, homeCF
     local homeAuto = false -- true = Home diset otomatis dari titik respawn (manual Set Home menimpa ini)
@@ -1789,7 +1813,9 @@ local buildClient -- kartu Client dipasang di tab Settings
     end
     local handled = setmetatable({}, {__mode = "k"})
     local function isSteal(p)
-        return ((p.ActionText or ""):lower():find("steal")) ~= nil
+        local tx = ((p.ActionText or "") .. " " .. (p.ObjectText or "")):lower()
+        if tx:find("steal", 1, true) then return true end
+        return p.Parent ~= nil and p.Parent.Name:lower():find("steal", 1, true) ~= nil
     end
     local function onSteal(p)
         if handled[p] and os.clock() - handled[p] < 1.5 then return end
@@ -1803,20 +1829,32 @@ local buildClient -- kartu Client dipasang di tab Settings
     task.spawn(function()
         while alive do
             task.wait(0.3)
-            if State.AutoSteal and fireproximityprompt and not atSafe then
-                local r = root()
-                if r then
+            if State.AutoSteal and not atSafe then
+                pcall(function()
+                    local r = root()
+                    if not r then return end
+                    local best, bd, bpos
                     for p in pairs(prompts) do
-                        if p.Parent and p.Enabled and isSteal(p) and (not handled[p] or os.clock() - handled[p] > 1.5) then
+                        if p.Parent and p.Enabled and isSteal(p) and not isMine(p)
+                            and (not handled[p] or os.clock() - handled[p] > 1.5) then
                             local par = p.Parent
-                            local pos = par:IsA("BasePart") and par.Position or (par:IsA("Attachment") and par.WorldPosition) or nil
-                            if pos and (pos - r.Position).Magnitude <= State.StealRange then
-                                if pcall(fireproximityprompt, p) then onSteal(p) end
-                                break
+                            local pos = (par:IsA("BasePart") and par.Position) or (par:IsA("Attachment") and par.WorldPosition)
+                                or (par:IsA("Model") and par:GetPivot().Position) or nil
+                            if pos then
+                                local d = (pos - r.Position).Magnitude
+                                if d <= State.StealFar and (not bd or d < bd) then best, bd, bpos = p, d, pos end
                             end
                         end
                     end
-                end
+                    if best then
+                        if bd <= State.StealRange then
+                            Base.fireP(best)
+                        else
+                            Base.useAt(bpos, function() Base.fireP(best) end)
+                        end
+                        onSteal(best)
+                    end
+                end)
             end
         end
     end)
@@ -1824,6 +1862,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     local as = card(ml, "Auto Steal", I.pointer)
     toggle(as, "Auto Steal", false, function(v) State.AutoSteal = v end)
     slider(as, "Steal Range", 5, 60, 15, function(v) State.StealRange = v end, " st")
+    slider(as, "Search Range", 15, 400, 150, function(v) State.StealFar = v end, " st")
     toggle(as, "TP to Safe after Steal", true, function(v) State.StealTP = v end)
     slider(as, "TP Delay", 0, 3000, 300, function(v) State.StealDelay = v end, "ms")
 
@@ -1964,14 +2003,14 @@ local buildClient -- kartu Client dipasang di tab Settings
         local r = root()
         if not r then return end
         local back = r.CFrame
-        local far = (pos - r.Position).Magnitude > 10
+        local far = (pos - r.Position).Magnitude > 6
         if far then
             r.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-            task.wait(0.15)
+            task.wait(0.35)
         end
         pcall(fn)
         if far then
-            task.wait(0.1)
+            task.wait(0.25)
             local r2 = root()
             if r2 then r2.CFrame = back end
         end
@@ -1985,7 +2024,7 @@ local buildClient -- kartu Client dipasang di tab Settings
             if atSafe or not (State.AutoHatch or State.AutoFarmEgg) then return end
             if not pText(e.p):find("steal", 1, true) and (not hatchCd[e.p] or os.clock() - hatchCd[e.p] > State.HatchCd) then
                 hatchCd[e.p] = os.clock()
-                useAt(e.pos, function() fireproximityprompt(e.p) end)
+                useAt(e.pos, function() Base.fireP(e.p) end)
                 task.wait(0.3)
             end
         end
@@ -2015,7 +2054,7 @@ local buildClient -- kartu Client dipasang di tab Settings
                     usable += 1
                     if not placeCd[e.p] or os.clock() - placeCd[e.p] > State.PlaceCd then
                         placeCd[e.p] = os.clock()
-                        useAt(e.pos, function() fireproximityprompt(e.p) end)
+                        useAt(e.pos, function() Base.fireP(e.p) end)
                         return
                     end
                 end
@@ -2044,9 +2083,9 @@ local buildClient -- kartu Client dipasang di tab Settings
             if atSafe or not State.AutoFarmEgg then return end
             if pText(e.p):find("egg") and not pText(e.p):find("steal") then
                 if isMine(e.p) then
-                    useAt(e.pos, function() fireproximityprompt(e.p) end)
+                    useAt(e.pos, function() Base.fireP(e.p) end)
                 elseif (e.pos - r.Position).Magnitude <= State.EggRange then
-                    pcall(fireproximityprompt, e.p)
+                    Base.fireP(e.p)
                 end
                 task.wait(0.2)
             end
@@ -2059,7 +2098,7 @@ local buildClient -- kartu Client dipasang di tab Settings
             if atSafe or not State.AutoCollectBase then return end
             if not pText(e.p):find("steal") and (not baseCd[e.p] or os.clock() - baseCd[e.p] > 2) then
                 baseCd[e.p] = os.clock()
-                useAt(e.pos, function() fireproximityprompt(e.p) end)
+                useAt(e.pos, function() Base.fireP(e.p) end)
                 task.wait(0.25)
             end
         end
@@ -2072,7 +2111,7 @@ local buildClient -- kartu Client dipasang di tab Settings
     task.spawn(function()
         while alive do
             task.wait(State.EggDelay)
-            if (State.AutoPlaceEgg or State.AutoHatch or State.AutoFarmEgg or State.AutoCollectBase) and fireproximityprompt and not atSafe and not eggBusy then
+            if (State.AutoPlaceEgg or State.AutoHatch or State.AutoFarmEgg or State.AutoCollectBase) and not atSafe and not eggBusy then
                 eggBusy = true
                 pcall(function()
                     if State.AutoFarmEgg then doCollect() end
@@ -2405,7 +2444,7 @@ end)()
             if fireproximityprompt then
                 for _, e in ipairs(Base.findPrompts({"sell"}, false)) do
                     if not Base.pText(e.p):find("steal", 1, true) then
-                        Base.useAt(e.pos, function() fireproximityprompt(e.p) end)
+                        Base.useAt(e.pos, function() Base.fireP(e.p) end)
                         done = true
                         break
                     end
@@ -2863,6 +2902,103 @@ task.defer(function()
 end)
 end
 
+-- ===== SPLASH (animasi pembuka pakai logo) =====
+Base.splash = function(done)
+    local called = false
+    local function fin() if not called then called = true done() end end
+    task.spawn(function()
+        local sp
+        local ok = pcall(function()
+            local WHITE = Color3.new(1, 1, 1)
+            sp = new("CanvasGroup", {
+                Name = "Splash", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(4, 4, 4),
+                BorderSizePixel = 0, ZIndex = 50, Active = true,
+            }, gui)
+            local sc = new("UIScale", {Scale = 1}, sp)
+            local box = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.42),
+                Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, ZIndex = 51,
+            }, sp)
+            for k = 0, 2 do
+                local ring = new("Frame", {
+                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                    Size = UDim2.fromOffset(96, 96), BackgroundTransparency = 1, ZIndex = 51,
+                }, box)
+                round(ring, 200)
+                local st = stroke(ring, WHITE, 2)
+                st.Transparency = 1
+                task.delay(0.5 + k * 0.5, function()
+                    local ti = TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1)
+                    st.Transparency = 0.35
+                    TweenService:Create(ring, ti, {Size = UDim2.fromOffset(300, 300)}):Play()
+                    TweenService:Create(st, ti, {Transparency = 1}):Play()
+                end)
+            end
+            local badge = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
+                BackgroundColor3 = Color3.fromRGB(14, 14, 14), BorderSizePixel = 0, ZIndex = 53, Rotation = -120,
+            }, box)
+            round(badge, 100)
+            stroke(badge, WHITE, 2)
+            if logoImg then
+                local im = new("ImageLabel", {
+                    BackgroundTransparency = 1, Image = logoImg, AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, -14, 1, -14),
+                    ScaleType = Enum.ScaleType.Crop, ZIndex = 54,
+                }, badge)
+                new("UICorner", {CornerRadius = UDim.new(1, 0)}, im)
+            else
+                label(badge, "R", 44, WHITE, FB, nil, nil, CENTER).ZIndex = 54
+            end
+            local title = new("TextLabel", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 78), Size = UDim2.fromOffset(320, 34),
+                BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = FB, TextSize = 26, ZIndex = 52,
+            }, sp)
+            local g = new("UIGradient", {
+                Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(110, 110, 110)),
+                    ColorSequenceKeypoint.new(0.5, WHITE),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 110, 110)),
+                }),
+                Offset = Vector2.new(-1, 0),
+            }, title)
+            TweenService:Create(g, TweenInfo.new(1.3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), {Offset = Vector2.new(1, 0)}):Play()
+            local bar = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 128), Size = UDim2.fromOffset(200, 4),
+                BackgroundColor3 = C.off, BorderSizePixel = 0, ZIndex = 52,
+            }, sp)
+            round(bar, 2)
+            local fill = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 53}, bar)
+            round(fill, 2)
+            local status = new("TextLabel", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 142), Size = UDim2.fromOffset(240, 16),
+                BackgroundTransparency = 1, Text = "Initializing...", TextColor3 = C.mute, Font = F, TextSize = 11, ZIndex = 52,
+            }, sp)
+
+            TweenService:Create(badge, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(96, 96), Rotation = 0}):Play()
+            TweenService:Create(fill, TweenInfo.new(2.3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {Size = UDim2.fromScale(1, 1)}):Play()
+            task.wait(0.6)
+            local txt = "RISYADH HUB"
+            for i = 1, #txt do
+                title.Text = txt:sub(1, i)
+                task.wait(0.055)
+            end
+            status.Text = "Loading modules..."
+            task.wait(0.7)
+            status.Text = "Scanning game..."
+            task.wait(0.6)
+            status.Text = "Ready"
+            task.wait(0.35)
+            TweenService:Create(sc, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Scale = 1.25}):Play()
+            TweenService:Create(sp, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {GroupTransparency = 1}):Play()
+            task.delay(0.25, fin)
+            task.wait(0.6)
+        end)
+        if sp then pcall(function() sp:Destroy() end) end
+        fin()
+    end)
+end
+
 -- ===== UNLOAD =====
 env.RisyadhUnload = function()
     pcall(restoreAll)
@@ -2876,4 +3012,4 @@ end
 
 tabs[1].pick()
 
-setMenu(true)
+Base.splash(function() setMenu(true) end)
