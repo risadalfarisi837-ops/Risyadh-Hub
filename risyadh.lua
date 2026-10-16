@@ -514,7 +514,14 @@ new("Frame", {Position = UDim2.new(0, 0, 0, 29), Size = UDim2.new(1, 0, 0, 1), B
 search:GetPropertyChangedSignal("Text"):Connect(function()
     local q = search.Text:lower()
     for _, s in ipairs(searchables) do
-        if s.row.Parent then s.row.Visible = (q == "") or (s.name:find(q, 1, true) ~= nil) end
+        if s.row.Parent then
+            local hit = (q == "") or (s.name:find(q, 1, true) ~= nil)
+            s.row.Visible = hit
+            if hit and q ~= "" then
+                local bd = s.row:FindFirstAncestor("Body")
+                if bd then bd.Visible = true end
+            end
+        end
     end
 end)
 
@@ -565,12 +572,15 @@ end)
 ;(function()
     local WHITE = Color3.new(1, 1, 1)
     local holder = new("Frame", {
-        Name = "Notifs", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14),
+        Name = "Notifs", AnchorPoint = Vector2.new(1, 1),
+        -- di HP naikin dikit biar nggak nutupin tombol lompat
+        Position = UIS.TouchEnabled and UDim2.new(1, -14, 0.76, 0) or UDim2.new(1, -14, 1, -14),
         Size = UDim2.fromOffset(270, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ZIndex = 80,
     }, gui)
     new("UIListLayout", {
         Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
-        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment = Enum.VerticalAlignment.Bottom,
     }, holder)
     local live, order, seq = {}, {}, 0
     local function remove(e, instant)
@@ -582,7 +592,7 @@ end)
         end
         if instant then e.wrap:Destroy() return end
         TweenService:Create(e.card, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {GroupTransparency = 1, Position = UDim2.new(0, 0, 0, -16)}):Play()
+            {GroupTransparency = 1, Position = UDim2.new(0, 300, 0, 0)}):Play()
         TweenService:Create(e.wrap, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
             {Size = UDim2.fromOffset(270, 0)}):Play()
         task.delay(0.32, function() e.wrap:Destroy() end)
@@ -598,7 +608,7 @@ end)
         local col = (kind == true) and C.ok or ((kind == false) and C.mute or WHITE)
         local wrap = new("Frame", {Size = UDim2.fromOffset(270, 52), BackgroundTransparency = 1, LayoutOrder = seq}, holder)
         local card = new("CanvasGroup", {
-            Size = UDim2.fromOffset(270, 52), Position = UDim2.new(0, 0, 0, -40),
+            Size = UDim2.fromOffset(270, 52), Position = UDim2.new(0, 300, 0, 0),
             BackgroundColor3 = C.card, BorderSizePixel = 0, GroupTransparency = 1,
         }, wrap)
         round(card, 12)
@@ -718,10 +728,10 @@ local function card(parent, name, icon)
     pressFx(head, 12)
     ico(head, icon, 14, C.accent, UDim2.fromOffset(10, 0), UDim2.fromOffset(22, 36))
     label(head, name, 12, C.text, FM, UDim2.fromOffset(36, 0), UDim2.new(1, -70, 1, 0))
-    local chev = ico(head, "chevdown", 12, C.mute, UDim2.new(1, -30, 0, 0), UDim2.fromOffset(20, 36))
+    local chev = ico(head, "chevright", 12, C.mute, UDim2.new(1, -30, 0, 0), UDim2.fromOffset(20, 36))
     local body = new("Frame", {
-        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1, LayoutOrder = 1,
+        Name = "Body", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1, LayoutOrder = 1, Visible = false,
     }, f)
     new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, body)
     new("UIPadding", {
@@ -956,10 +966,9 @@ end
 
 -- ===== FEATURES =====
 local State = {
-    WalkSpeed = false, Speed = 32, InfJump = false, Noclip = false, Fly = false, FlySpeed = 60, Instant = false,
+    WalkSpeed = false, Speed = 32, InfJump = false, Noclip = false, Fly = false, FlySpeed = 60,
     ESP = false, Fullbright = false, FOVOn = false, FOV = 90, AntiAFK = false,
     ESPHL = true, ESPDist = true, ESPEgg = false, ESPBrain = false,
-    AutoClick = false, ClickDelay = 200,
     AutoHome = true, HatchCd = 3, PlaceCd = 4,
     JumpOn = false, Jump = 50, NoFog = false,
 }
@@ -1044,9 +1053,6 @@ end))
 track(lp.CharacterAdded:Connect(function()
     task.wait(1)
     if State.Fly then startFly() end
-end))
-track(PPS.PromptButtonHoldBegan:Connect(function(p)
-    if State.Instant and fireproximityprompt then fireproximityprompt(p) end
 end))
 
 -- ===== FITUR TAMBAHAN =====
@@ -1952,22 +1958,6 @@ local buildClient -- kartu Client dipasang di tab Settings
     slider(as, "Search Range", 15, 400, 150, function(v) State.StealFar = v end, " st")
     toggle(as, "TP to Safe after Steal", true, function(v) State.StealTP = v end)
     slider(as, "TP Delay", 0, 3000, 300, function(v) State.StealDelay = v end, "ms")
-
-    -- Interact
-    local ia = card(mr, "Interact", I.pointer)
-    toggle(ia, "Instant Prompt", false, function(v) State.Instant = v end)
-    toggle(ia, "Auto Click Tool", false, function(v) State.AutoClick = v end)
-    slider(ia, "Click Delay", 50, 2000, 200, function(v) State.ClickDelay = v end, "ms")
-    task.spawn(function()
-        while alive do
-            task.wait(State.ClickDelay / 1000)
-            if State.AutoClick and not atSafe then
-                local ch = lp.Character
-                local tl = ch and ch:FindFirstChildOfClass("Tool")
-                if tl then pcall(function() tl:Activate() end) end
-            end
-        end
-    end)
 
     -- Safe spot
     local sf = card(ml, "Safe Spot", "pin")
@@ -3000,7 +2990,7 @@ task.defer(function()
 end)
 end
 
--- ===== SPLASH (intro sinematik pakai logo) =====
+-- ===== SPLASH (cuma logo + efek, tanpa background) =====
 Base.splash = function(done)
     local called = false
     local function fin() if not called then called = true done() end end
@@ -3016,81 +3006,29 @@ Base.splash = function(done)
             end
             local rnd = Random.new()
 
-            sp = new("Frame", {
+            sp = new("CanvasGroup", {
                 Name = "Splash", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
-                BorderSizePixel = 0, ZIndex = 50, Active = true, ClipsDescendants = true,
+                BorderSizePixel = 0, ZIndex = 50, Active = false,
             }, gui)
-            -- dua pintu hitam (nanti membuka ke atas & bawah)
-            local function panel(y, c0, c1)
-                local f = new("Frame", {
-                    Size = UDim2.fromScale(1, 0.5), Position = UDim2.fromScale(0, y),
-                    BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 50,
-                }, sp)
-                new("UIGradient", {Color = ColorSequence.new(c0, c1), Rotation = 90}, f)
-                return f
-            end
-            local pTop = panel(0, Color3.fromRGB(16, 16, 16), Color3.fromRGB(2, 2, 2))
-            local pBot = panel(0.5, Color3.fromRGB(2, 2, 2), Color3.fromRGB(16, 16, 16))
-            local stage = new("CanvasGroup", {
-                Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 51,
+            local sc = new("UIScale", {Scale = 1}, sp)
+            local box = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, ZIndex = 3,
             }, sp)
 
-            -- partikel melayang
-            for _ = 1, 26 do
-                local sz = rnd:NextInteger(2, 4)
-                local sx = rnd:NextNumber()
-                local dot = new("Frame", {
-                    Size = UDim2.fromOffset(sz, sz), Position = UDim2.fromScale(sx, 1.05), BackgroundColor3 = WHITE,
-                    BackgroundTransparency = rnd:NextNumber(0.45, 0.85), BorderSizePixel = 0, ZIndex = 1,
-                }, stage)
-                round(dot, 4)
-                tw(dot, TI(rnd:NextNumber(3.5, 6.5), E.Linear, D.Out, -1, false, rnd:NextNumber(0, 2)),
-                    {Position = UDim2.fromScale(sx, -0.05)})
-            end
-
-            -- garis pembuka
-            local seam = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 2),
-                BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2,
-            }, stage)
-            tw(seam, TI(0.6, E.Quint, D.Out), {Size = UDim2.fromOffset(340, 2)})
-            task.wait(0.45)
-
-            local box = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.38),
-                Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, ZIndex = 3,
-            }, stage)
-            tw(seam, TI(0.5, E.Quad, D.In), {Size = UDim2.fromOffset(0, 2), BackgroundTransparency = 1})
-
-            -- glow di belakang logo
+            -- glow lembut di belakang logo
             local glow = new("Frame", {
                 AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
-                BackgroundColor3 = WHITE, BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 2,
+                BackgroundColor3 = WHITE, BackgroundTransparency = 0.9, BorderSizePixel = 0, ZIndex = 2,
             }, box)
             round(glow, 200)
-            stroke(glow, WHITE, 1).Transparency = 0.7
+            stroke(glow, WHITE, 1).Transparency = 0.6
             tw(glow, TI(0.9, E.Back, D.Out), {Size = UDim2.fromOffset(150, 150)})
             task.delay(1, function()
-                tw(glow, TI(1.2, E.Sine, D.InOut, -1, true), {Size = UDim2.fromOffset(176, 176)})
+                tw(glow, TI(1.2, E.Sine, D.InOut, -1, true), {Size = UDim2.fromOffset(180, 180)})
             end)
-            -- gelombang cincin
-            for k = 0, 2 do
-                local ring = new("Frame", {
-                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                    Size = UDim2.fromOffset(100, 100), BackgroundTransparency = 1, ZIndex = 3,
-                }, box)
-                round(ring, 200)
-                local st = stroke(ring, WHITE, 2)
-                st.Transparency = 1
-                task.delay(0.8 + k * 0.55, function()
-                    local ti = TI(1.8, E.Quad, D.Out, -1)
-                    st.Transparency = 0.35
-                    tw(ring, ti, {Size = UDim2.fromOffset(320, 320)})
-                    tw(st, ti, {Transparency = 1})
-                end)
-            end
 
-            -- logo (bulat, ada kilatan cahaya lewat)
+            -- logo (bulat) + kilatan cahaya
             local badge = new("CanvasGroup", {
                 AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
                 BackgroundColor3 = Color3.fromRGB(12, 12, 12), BorderSizePixel = 0, ZIndex = 4, Rotation = -180,
@@ -3113,106 +3051,73 @@ Base.splash = function(done)
             new("UIGradient", {Transparency = NumberSequence.new({
                 NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
             })}, sweep)
-            tw(badge, TI(1, E.Back, D.Out), {Size = UDim2.fromOffset(100, 100), Rotation = 0})
-            tw(sweep, TI(1.2, E.Quad, D.InOut, -1, false, 1.2), {Position = UDim2.new(1, 30, 0.5, 0)})
-            task.wait(0.7)
+            tw(badge, TI(1, E.Back, D.Out), {Size = UDim2.fromOffset(110, 110), Rotation = 0})
+            tw(sweep, TI(1.1, E.Quad, D.InOut, -1, false, 1.0), {Position = UDim2.new(1, 30, 0.5, 0)})
 
-            -- orbit (spinner ekor komet)
-            local orbit = new("Frame", {
+            -- ledakan percikan (dipakai pas muncul & pas keluar)
+            local function burst(n, far)
+                for _ = 1, n do
+                    local a = rnd:NextNumber(0, math.pi * 2)
+                    local r = rnd:NextNumber(far * 0.6, far)
+                    local sz = rnd:NextInteger(3, 6)
+                    local sp2 = new("Frame", {
+                        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(sz, sz),
+                        BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3,
+                    }, box)
+                    round(sp2, 6)
+                    local ti = TI(rnd:NextNumber(0.7, 1.1), E.Quad, D.Out)
+                    tw(sp2, ti, {Position = UDim2.new(0.5, math.cos(a) * r, 0.5, math.sin(a) * r), BackgroundTransparency = 1})
+                    task.delay(1.2, function() sp2:Destroy() end)
+                end
+            end
+            task.wait(0.35)
+            burst(16, 170)
+
+            -- gelombang cincin
+            for k = 0, 2 do
+                local ring = new("Frame", {
+                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                    Size = UDim2.fromOffset(110, 110), BackgroundTransparency = 1, ZIndex = 3,
+                }, box)
+                round(ring, 200)
+                local st = stroke(ring, WHITE, 2)
+                st.Transparency = 1
+                task.delay(k * 0.55, function()
+                    local ti = TI(1.8, E.Quad, D.Out, -1)
+                    st.Transparency = 0.3
+                    tw(ring, ti, {Size = UDim2.fromOffset(340, 340)})
+                    tw(st, ti, {Transparency = 1})
+                end)
+            end
+            task.wait(0.4)
+
+            -- orbit (spinner ekor komet) muncul pelan
+            local orbit = new("CanvasGroup", {
                 AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(150, 150), BackgroundTransparency = 1, ZIndex = 5,
+                Size = UDim2.fromOffset(160, 160), BackgroundTransparency = 1, ZIndex = 5, GroupTransparency = 1,
             }, box)
             for i = 0, 13 do
                 local a = math.rad(i * 360 / 14)
                 local sz = 3 + i * 0.35
                 local dot = new("Frame", {
-                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, math.cos(a) * 66, 0.5, math.sin(a) * 66),
+                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, math.cos(a) * 72, 0.5, math.sin(a) * 72),
                     Size = UDim2.fromOffset(sz, sz), BackgroundColor3 = WHITE,
                     BackgroundTransparency = 1 - (i / 13), BorderSizePixel = 0,
                 }, orbit)
                 round(dot, 6)
             end
+            tw(orbit, TI(0.5, E.Quad, D.Out), {GroupTransparency = 0})
             tw(orbit, TI(1.1, E.Linear, D.Out, -1), {Rotation = 360})
+            task.wait(1.6)
 
-            -- judul: huruf muncul satu-satu sambil merapat
-            local tt = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 92), Size = UDim2.fromOffset(420, 34),
-                BackgroundTransparency = 1, ZIndex = 5,
-            }, stage)
-            local lay = new("UIListLayout", {
-                FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
-                VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 26), SortOrder = Enum.SortOrder.LayoutOrder,
-            }, tt)
-            local txt = "RISYADH HUB"
-            for i = 1, #txt do
-                local ch = txt:sub(i, i)
-                local sp2 = (ch == " ")
-                local l = new("TextLabel", {
-                    BackgroundTransparency = 1, Size = UDim2.fromOffset(sp2 and 12 or 0, 34),
-                    AutomaticSize = sp2 and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
-                    Text = ch, TextColor3 = WHITE, Font = FB, TextSize = 14, TextTransparency = 1, LayoutOrder = i, ZIndex = 5,
-                }, tt)
-                task.delay(i * 0.06, function()
-                    tw(l, TI(0.5, E.Back, D.Out), {TextTransparency = 0, TextSize = 28})
-                end)
-            end
-            tw(lay, TI(1.3, E.Quint, D.Out), {Padding = UDim.new(0, 3)})
-            task.wait(0.9)
-
-            -- garis bawah + tagline
-            local ul = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 134), Size = UDim2.fromOffset(0, 2),
-                BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 5,
-            }, stage)
-            new("UIGradient", {Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
-            })}, ul)
-            tw(ul, TI(0.8, E.Quint, D.Out), {Size = UDim2.fromOffset(240, 2)})
-            local tag = new("TextLabel", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 142), Size = UDim2.fromOffset(300, 16),
-                BackgroundTransparency = 1, Text = "PREMIUM SCRIPT HUB", TextColor3 = C.mute, Font = FM, TextSize = 10,
-                TextTransparency = 1, ZIndex = 5,
-            }, stage)
-            tw(tag, TI(0.6, E.Quad, D.Out), {TextTransparency = 0})
-
-            -- progress
-            local prog = new("CanvasGroup", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 170), Size = UDim2.fromOffset(220, 32),
-                BackgroundTransparency = 1, GroupTransparency = 1, ZIndex = 5,
-            }, stage)
-            local bar = new("Frame", {Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = C.off, BorderSizePixel = 0}, prog)
-            round(bar, 2)
-            local fill = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0}, bar)
-            round(fill, 2)
-            local status = label(prog, "Initializing...", 10, C.mute, F, UDim2.fromOffset(0, 10), UDim2.new(0.7, 0, 0, 14))
-            local pct = label(prog, "0%", 10, C.text, FM, UDim2.new(0.7, 0, 0, 10), UDim2.new(0.3, 0, 0, 14), Enum.TextXAlignment.Right)
-            tw(prog, TI(0.4, E.Quad, D.Out), {GroupTransparency = 0})
-            local steps = 60
-            for i = 0, steps do
-                local a = TweenService:GetValue(i / steps, E.Quad, D.InOut)
-                local pc = math.floor(a * 100 + 0.5)
-                fill.Size = UDim2.fromScale(a, 1)
-                pct.Text = pc .. "%"
-                status.Text = pc < 30 and "Initializing..." or (pc < 62 and "Loading modules..." or (pc < 95 and "Scanning game..." or "Ready"))
-                task.wait(2.1 / steps)
-            end
-            task.wait(0.15)
-
-            -- finale: kilat + logo membesar, lalu pintu membuka
-            local fl = new("Frame", {
-                Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 60,
-            }, sp)
-            tw(fl, TI(0.1), {BackgroundTransparency = 0.78})
-            tw(badge, TI(0.35, E.Back, D.Out), {Size = UDim2.fromOffset(120, 120)})
-            task.wait(0.1)
-            tw(fl, TI(0.5), {BackgroundTransparency = 1})
+            -- keluar: logo membesar sambil pecah jadi percikan lalu hilang
+            burst(22, 230)
+            tw(badge, TI(0.35, E.Back, D.Out), {Size = UDim2.fromOffset(130, 130)})
             task.wait(0.25)
-            tw(stage, TI(0.5, E.Quad, D.In), {GroupTransparency = 1})
-            local open = TI(0.8, E.Quint, D.InOut)
-            tw(pTop, open, {Position = UDim2.fromScale(0, -0.5)})
-            tw(pBot, open, {Position = UDim2.fromScale(0, 1)})
-            task.delay(0.3, fin)
-            task.wait(0.85)
+            tw(sc, TI(0.6, E.Quint, D.In), {Scale = 1.6})
+            tw(sp, TI(0.55, E.Quad, D.In), {GroupTransparency = 1})
+            task.delay(0.2, fin)
+            task.wait(0.65)
         end)
         if not ok then warn("[Risyadh splash]", err) end
         if sp then pcall(function() sp:Destroy() end) end
