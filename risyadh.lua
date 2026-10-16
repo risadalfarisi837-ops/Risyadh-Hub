@@ -476,7 +476,7 @@ else
     label(logo, "R", 16, Color3.new(1, 1, 1), FB, nil, nil, CENTER)
 end
 label(side, "Risyadh Hub", 13, C.text, FM, UDim2.fromOffset(52, 13), UDim2.new(1, -58, 0, 18))
-label(side, "v2.2", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
+label(side, "v2.3", 10, C.mute, F, UDim2.fromOffset(52, 30), UDim2.new(1, -58, 0, 14))
 
 local tabList = new("Frame", {Position = UDim2.fromOffset(8, 66), Size = UDim2.new(1, -16, 1, -150), BackgroundTransparency = 1}, side)
 new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, tabList)
@@ -560,6 +560,87 @@ fab.Activated:Connect(function()
         TweenService:Create(fab, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(52, 52)}):Play()
     end)
 end)
+
+-- ===== NOTIFIKASI (toast) =====
+;(function()
+    local WHITE = Color3.new(1, 1, 1)
+    local holder = new("Frame", {
+        Name = "Notifs", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14),
+        Size = UDim2.fromOffset(270, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ZIndex = 80,
+    }, gui)
+    new("UIListLayout", {
+        Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    }, holder)
+    local live, order, seq = {}, {}, 0
+    local function remove(e, instant)
+        if e.dead then return end
+        e.dead = true
+        if live[e.title] == e then live[e.title] = nil end
+        for i, x in ipairs(order) do
+            if x == e then table.remove(order, i) break end
+        end
+        if instant then e.wrap:Destroy() return end
+        TweenService:Create(e.card, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            {GroupTransparency = 1, Position = UDim2.new(0, 0, 0, -16)}):Play()
+        TweenService:Create(e.wrap, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+            {Size = UDim2.fromOffset(270, 0)}):Play()
+        task.delay(0.32, function() e.wrap:Destroy() end)
+    end
+    -- kind: true = ON (hijau), false = OFF (abu), nil = info (putih)
+    env.RisyadhNotify = function(title, text, kind, dur)
+        if env.RisyadhQuiet or not holder.Parent then return end
+        dur = dur or 2.6
+        seq += 1
+        local old = live[title]
+        if old then remove(old, true) end
+        while #order >= 4 do remove(order[1], true) end
+        local col = (kind == true) and C.ok or ((kind == false) and C.mute or WHITE)
+        local wrap = new("Frame", {Size = UDim2.fromOffset(270, 52), BackgroundTransparency = 1, LayoutOrder = seq}, holder)
+        local card = new("CanvasGroup", {
+            Size = UDim2.fromOffset(270, 52), Position = UDim2.new(0, 0, 0, -40),
+            BackgroundColor3 = C.card, BorderSizePixel = 0, GroupTransparency = 1,
+        }, wrap)
+        round(card, 12)
+        stroke(card, C.line, 1)
+        new("Frame", {Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = col, BorderSizePixel = 0}, card)
+        local ic = new("Frame", {
+            Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(32, 32), BackgroundColor3 = C.item, BorderSizePixel = 0,
+        }, card)
+        round(ic, 16)
+        if logoImg then
+            local im = new("ImageLabel", {
+                BackgroundTransparency = 1, Image = logoImg, Position = UDim2.fromOffset(3, 3),
+                Size = UDim2.new(1, -6, 1, -6), ScaleType = Enum.ScaleType.Crop,
+            }, ic)
+            new("UICorner", {CornerRadius = UDim.new(1, 0)}, im)
+        else
+            label(ic, "R", 14, WHITE, FB, nil, nil, CENTER)
+        end
+        local tw = (kind ~= nil) and -118 or -70
+        label(card, title, 12, C.text, FM, UDim2.fromOffset(56, 9), UDim2.new(1, tw, 0, 16))
+        label(card, text or "", 11, C.mute, F, UDim2.fromOffset(56, 27), UDim2.new(1, tw, 0, 14))
+        if kind ~= nil then
+            local pill = new("Frame", {
+                AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(38, 20),
+                BackgroundColor3 = col, BackgroundTransparency = 0.82, BorderSizePixel = 0,
+            }, card)
+            round(pill, 10)
+            label(pill, kind and "ON" or "OFF", 10, col, FB, nil, nil, CENTER)
+        end
+        local bar = new("Frame", {
+            AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 2),
+            BackgroundColor3 = col, BackgroundTransparency = 0.25, BorderSizePixel = 0,
+        }, card)
+        local e = {wrap = wrap, card = card, title = title}
+        live[title] = e
+        order[#order + 1] = e
+        TweenService:Create(card, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new()}):Play()
+        TweenService:Create(card, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+        TweenService:Create(bar, TweenInfo.new(dur, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 0, 2)}):Play()
+        task.delay(dur, function() remove(e) end)
+    end
+end)()
 
 -- ===== COMPONENTS =====
 local tabs = {}
@@ -678,6 +759,9 @@ local function toggle(parent, name, default, cb, noSave)
         }):Play()
     end
     render()
+    local function ping(st)
+        if not noSave and env.RisyadhNotify then env.RisyadhNotify(name, st and "Enabled" or "Disabled", st) end
+    end
     local h = {
         get = function() return state end,
         set = function(v)
@@ -685,12 +769,14 @@ local function toggle(parent, name, default, cb, noSave)
             if v == state then return end
             state = v
             render()
+            ping(state)
             task.spawn(cb, state)
         end,
     }
     sw.Activated:Connect(function()
         state = not state
         render()
+        ping(state)
         task.spawn(cb, state)
     end)
     if not noSave then Controls[name] = h end
@@ -1821,6 +1907,7 @@ local buildClient -- kartu Client dipasang di tab Settings
         if handled[p] and os.clock() - handled[p] < 1.5 then return end
         handled[p] = os.clock()
         State.Steals += 1
+        if env.RisyadhNotify then env.RisyadhNotify("Auto Steal", "Steal #" .. State.Steals, true, 1.8) end
         if State.StealTP then triggerSafe() end
     end
     track(PPS.PromptTriggered:Connect(function(p, plr)
@@ -2410,6 +2497,7 @@ end)()
                         end
                     end
                     if did then
+                        if env.RisyadhNotify then env.RisyadhNotify("Auto Rebirth", "Rebirth dijalankan", true) end
                         task.wait(0.7)
                         if not Base.clickGui({"confirm", "yes"}, true) then Base.clickGui({"rebirth now"}) end
                     elseif #cands == 0 then
@@ -2769,12 +2857,15 @@ dropdown(menuC, "Toggle button", {"Always", "Mobile only", "Hidden"}, "Always", 
 -- matiin semua fitur sekaligus (darurat). Toggle tampilan bawaan-ON dibiarkan.
 local keepOn = {["Highlight"] = true, ["Show Distance"] = true, ["TP to Safe after Steal"] = true, ["Keep Mutated"] = true}
 button(menuC, "Disable All Features", function()
+    env.RisyadhQuiet = true
     for k, h in pairs(Controls) do
         if not keepOn[k] then
             local ok, v = pcall(h.get)
             if ok and v == true then pcall(h.set, false) end
         end
     end
+    env.RisyadhQuiet = false
+    if env.RisyadhNotify then env.RisyadhNotify("Risyadh Hub", "All features disabled", false) end
 end)
 button(menuC, "Unload Hub", function()
     if env.RisyadhUnload then env.RisyadhUnload() end
@@ -2811,10 +2902,13 @@ local function collect()
     return t
 end
 local function applyCfg(t)
+    env.RisyadhQuiet = true
     for k, v in pairs(t) do
         local h = Controls[k]
         if h then pcall(h.set, v) end
     end
+    env.RisyadhQuiet = false
+    if env.RisyadhNotify then env.RisyadhNotify("Config", "Config loaded") end
 end
 local function writeCfg(n)
     ensureDir()
@@ -2873,12 +2967,14 @@ end, "Delete", function(b, t)
 end)
 btnPair(cfgC, "Set autoload", function(b, t)
     if not (FS_OK and cfgSel) then flash(b, "Pilih config", t) return end
-    local ok = pcall(function() ensureDir() writefile(DIR .. "/autoload.txt", cfgSel) end)
+    local ok = pcall(function() ensureDir() writefile(DIR .. "/autoload_user.txt", cfgSel) end)
     flash(b, ok and "Autoload" or "Gagal", t)
+    if ok and env.RisyadhNotify then env.RisyadhNotify("Autoload", "Diset: " .. cfgSel) end
 end, "Clear autoload", function(b, t)
     if not FS_OK then flash(b, "No FS", t) return end
-    pcall(function() writefile(DIR .. "/autoload.txt", "") end)
+    pcall(function() writefile(DIR .. "/autoload_user.txt", "") end)
     flash(b, "Dihapus", t)
+    if env.RisyadhNotify then env.RisyadhNotify("Autoload", "Dimatikan") end
 end)
 
 -- Interface
@@ -2889,7 +2985,9 @@ task.defer(function()
     if not FS_OK then return end
     task.wait(0.5)
     local ok, n = pcall(function()
-        return isfile(DIR .. "/autoload.txt") and readfile(DIR .. "/autoload.txt") or ""
+        -- file lama (autoload.txt) dibuang; autoload cuma jalan kalau user sendiri yang Set autoload
+        if isfile(DIR .. "/autoload.txt") then pcall(delfile, DIR .. "/autoload.txt") end
+        return isfile(DIR .. "/autoload_user.txt") and readfile(DIR .. "/autoload_user.txt") or ""
     end)
     n = ok and cleanName(n) or ""
     if n ~= "" then
@@ -2902,98 +3000,221 @@ task.defer(function()
 end)
 end
 
--- ===== SPLASH (animasi pembuka pakai logo) =====
+-- ===== SPLASH (intro sinematik pakai logo) =====
 Base.splash = function(done)
     local called = false
     local function fin() if not called then called = true done() end end
     task.spawn(function()
         local sp
-        local ok = pcall(function()
+        local ok, err = pcall(function()
             local WHITE = Color3.new(1, 1, 1)
-            sp = new("CanvasGroup", {
-                Name = "Splash", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(4, 4, 4),
-                BorderSizePixel = 0, ZIndex = 50, Active = true,
+            local TI, E, D = TweenInfo.new, Enum.EasingStyle, Enum.EasingDirection
+            local function tw(o, info, props)
+                local t = TweenService:Create(o, info, props)
+                t:Play()
+                return t
+            end
+            local rnd = Random.new()
+
+            sp = new("Frame", {
+                Name = "Splash", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+                BorderSizePixel = 0, ZIndex = 50, Active = true, ClipsDescendants = true,
             }, gui)
-            local sc = new("UIScale", {Scale = 1}, sp)
-            local box = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.42),
-                Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, ZIndex = 51,
+            -- dua pintu hitam (nanti membuka ke atas & bawah)
+            local function panel(y, c0, c1)
+                local f = new("Frame", {
+                    Size = UDim2.fromScale(1, 0.5), Position = UDim2.fromScale(0, y),
+                    BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 50,
+                }, sp)
+                new("UIGradient", {Color = ColorSequence.new(c0, c1), Rotation = 90}, f)
+                return f
+            end
+            local pTop = panel(0, Color3.fromRGB(16, 16, 16), Color3.fromRGB(2, 2, 2))
+            local pBot = panel(0.5, Color3.fromRGB(2, 2, 2), Color3.fromRGB(16, 16, 16))
+            local stage = new("CanvasGroup", {
+                Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 51,
             }, sp)
+
+            -- partikel melayang
+            for _ = 1, 26 do
+                local sz = rnd:NextInteger(2, 4)
+                local sx = rnd:NextNumber()
+                local dot = new("Frame", {
+                    Size = UDim2.fromOffset(sz, sz), Position = UDim2.fromScale(sx, 1.05), BackgroundColor3 = WHITE,
+                    BackgroundTransparency = rnd:NextNumber(0.45, 0.85), BorderSizePixel = 0, ZIndex = 1,
+                }, stage)
+                round(dot, 4)
+                tw(dot, TI(rnd:NextNumber(3.5, 6.5), E.Linear, D.Out, -1, false, rnd:NextNumber(0, 2)),
+                    {Position = UDim2.fromScale(sx, -0.05)})
+            end
+
+            -- garis pembuka
+            local seam = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 2),
+                BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2,
+            }, stage)
+            tw(seam, TI(0.6, E.Quint, D.Out), {Size = UDim2.fromOffset(340, 2)})
+            task.wait(0.45)
+
+            local box = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.38),
+                Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, ZIndex = 3,
+            }, stage)
+            tw(seam, TI(0.5, E.Quad, D.In), {Size = UDim2.fromOffset(0, 2), BackgroundTransparency = 1})
+
+            -- glow di belakang logo
+            local glow = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
+                BackgroundColor3 = WHITE, BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 2,
+            }, box)
+            round(glow, 200)
+            stroke(glow, WHITE, 1).Transparency = 0.7
+            tw(glow, TI(0.9, E.Back, D.Out), {Size = UDim2.fromOffset(150, 150)})
+            task.delay(1, function()
+                tw(glow, TI(1.2, E.Sine, D.InOut, -1, true), {Size = UDim2.fromOffset(176, 176)})
+            end)
+            -- gelombang cincin
             for k = 0, 2 do
                 local ring = new("Frame", {
                     AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                    Size = UDim2.fromOffset(96, 96), BackgroundTransparency = 1, ZIndex = 51,
+                    Size = UDim2.fromOffset(100, 100), BackgroundTransparency = 1, ZIndex = 3,
                 }, box)
                 round(ring, 200)
                 local st = stroke(ring, WHITE, 2)
                 st.Transparency = 1
-                task.delay(0.5 + k * 0.5, function()
-                    local ti = TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1)
+                task.delay(0.8 + k * 0.55, function()
+                    local ti = TI(1.8, E.Quad, D.Out, -1)
                     st.Transparency = 0.35
-                    TweenService:Create(ring, ti, {Size = UDim2.fromOffset(300, 300)}):Play()
-                    TweenService:Create(st, ti, {Transparency = 1}):Play()
+                    tw(ring, ti, {Size = UDim2.fromOffset(320, 320)})
+                    tw(st, ti, {Transparency = 1})
                 end)
             end
-            local badge = new("Frame", {
+
+            -- logo (bulat, ada kilatan cahaya lewat)
+            local badge = new("CanvasGroup", {
                 AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
-                BackgroundColor3 = Color3.fromRGB(14, 14, 14), BorderSizePixel = 0, ZIndex = 53, Rotation = -120,
+                BackgroundColor3 = Color3.fromRGB(12, 12, 12), BorderSizePixel = 0, ZIndex = 4, Rotation = -180,
             }, box)
             round(badge, 100)
             stroke(badge, WHITE, 2)
             if logoImg then
-                local im = new("ImageLabel", {
+                new("ImageLabel", {
                     BackgroundTransparency = 1, Image = logoImg, AnchorPoint = Vector2.new(0.5, 0.5),
                     Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, -14, 1, -14),
-                    ScaleType = Enum.ScaleType.Crop, ZIndex = 54,
+                    ScaleType = Enum.ScaleType.Crop, ZIndex = 2,
                 }, badge)
-                new("UICorner", {CornerRadius = UDim.new(1, 0)}, im)
             else
-                label(badge, "R", 44, WHITE, FB, nil, nil, CENTER).ZIndex = 54
+                label(badge, "R", 44, WHITE, FB, nil, nil, CENTER).ZIndex = 2
             end
-            local title = new("TextLabel", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 78), Size = UDim2.fromOffset(320, 34),
-                BackgroundTransparency = 1, Text = "", TextColor3 = WHITE, Font = FB, TextSize = 26, ZIndex = 52,
-            }, sp)
-            local g = new("UIGradient", {
-                Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(110, 110, 110)),
-                    ColorSequenceKeypoint.new(0.5, WHITE),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(110, 110, 110)),
-                }),
-                Offset = Vector2.new(-1, 0),
-            }, title)
-            TweenService:Create(g, TweenInfo.new(1.3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), {Offset = Vector2.new(1, 0)}):Play()
-            local bar = new("Frame", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 128), Size = UDim2.fromOffset(200, 4),
-                BackgroundColor3 = C.off, BorderSizePixel = 0, ZIndex = 52,
-            }, sp)
-            round(bar, 2)
-            local fill = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 53}, bar)
-            round(fill, 2)
-            local status = new("TextLabel", {
-                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.42, 142), Size = UDim2.fromOffset(240, 16),
-                BackgroundTransparency = 1, Text = "Initializing...", TextColor3 = C.mute, Font = F, TextSize = 11, ZIndex = 52,
-            }, sp)
+            local sweep = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, -30, 0.5, 0), Size = UDim2.new(0, 26, 1.6, 0),
+                Rotation = 20, BackgroundColor3 = WHITE, BackgroundTransparency = 0.2, BorderSizePixel = 0, ZIndex = 5,
+            }, badge)
+            new("UIGradient", {Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
+            })}, sweep)
+            tw(badge, TI(1, E.Back, D.Out), {Size = UDim2.fromOffset(100, 100), Rotation = 0})
+            tw(sweep, TI(1.2, E.Quad, D.InOut, -1, false, 1.2), {Position = UDim2.new(1, 30, 0.5, 0)})
+            task.wait(0.7)
 
-            TweenService:Create(badge, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(96, 96), Rotation = 0}):Play()
-            TweenService:Create(fill, TweenInfo.new(2.3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {Size = UDim2.fromScale(1, 1)}):Play()
-            task.wait(0.6)
+            -- orbit (spinner ekor komet)
+            local orbit = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(150, 150), BackgroundTransparency = 1, ZIndex = 5,
+            }, box)
+            for i = 0, 13 do
+                local a = math.rad(i * 360 / 14)
+                local sz = 3 + i * 0.35
+                local dot = new("Frame", {
+                    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, math.cos(a) * 66, 0.5, math.sin(a) * 66),
+                    Size = UDim2.fromOffset(sz, sz), BackgroundColor3 = WHITE,
+                    BackgroundTransparency = 1 - (i / 13), BorderSizePixel = 0,
+                }, orbit)
+                round(dot, 6)
+            end
+            tw(orbit, TI(1.1, E.Linear, D.Out, -1), {Rotation = 360})
+
+            -- judul: huruf muncul satu-satu sambil merapat
+            local tt = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 92), Size = UDim2.fromOffset(420, 34),
+                BackgroundTransparency = 1, ZIndex = 5,
+            }, stage)
+            local lay = new("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 26), SortOrder = Enum.SortOrder.LayoutOrder,
+            }, tt)
             local txt = "RISYADH HUB"
             for i = 1, #txt do
-                title.Text = txt:sub(1, i)
-                task.wait(0.055)
+                local ch = txt:sub(i, i)
+                local sp2 = (ch == " ")
+                local l = new("TextLabel", {
+                    BackgroundTransparency = 1, Size = UDim2.fromOffset(sp2 and 12 or 0, 34),
+                    AutomaticSize = sp2 and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
+                    Text = ch, TextColor3 = WHITE, Font = FB, TextSize = 14, TextTransparency = 1, LayoutOrder = i, ZIndex = 5,
+                }, tt)
+                task.delay(i * 0.06, function()
+                    tw(l, TI(0.5, E.Back, D.Out), {TextTransparency = 0, TextSize = 28})
+                end)
             end
-            status.Text = "Loading modules..."
-            task.wait(0.7)
-            status.Text = "Scanning game..."
-            task.wait(0.6)
-            status.Text = "Ready"
-            task.wait(0.35)
-            TweenService:Create(sc, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Scale = 1.25}):Play()
-            TweenService:Create(sp, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {GroupTransparency = 1}):Play()
-            task.delay(0.25, fin)
-            task.wait(0.6)
+            tw(lay, TI(1.3, E.Quint, D.Out), {Padding = UDim.new(0, 3)})
+            task.wait(0.9)
+
+            -- garis bawah + tagline
+            local ul = new("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 134), Size = UDim2.fromOffset(0, 2),
+                BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 5,
+            }, stage)
+            new("UIGradient", {Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
+            })}, ul)
+            tw(ul, TI(0.8, E.Quint, D.Out), {Size = UDim2.fromOffset(240, 2)})
+            local tag = new("TextLabel", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 142), Size = UDim2.fromOffset(300, 16),
+                BackgroundTransparency = 1, Text = "PREMIUM SCRIPT HUB", TextColor3 = C.mute, Font = FM, TextSize = 10,
+                TextTransparency = 1, ZIndex = 5,
+            }, stage)
+            tw(tag, TI(0.6, E.Quad, D.Out), {TextTransparency = 0})
+
+            -- progress
+            local prog = new("CanvasGroup", {
+                AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.38, 170), Size = UDim2.fromOffset(220, 32),
+                BackgroundTransparency = 1, GroupTransparency = 1, ZIndex = 5,
+            }, stage)
+            local bar = new("Frame", {Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = C.off, BorderSizePixel = 0}, prog)
+            round(bar, 2)
+            local fill = new("Frame", {Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0}, bar)
+            round(fill, 2)
+            local status = label(prog, "Initializing...", 10, C.mute, F, UDim2.fromOffset(0, 10), UDim2.new(0.7, 0, 0, 14))
+            local pct = label(prog, "0%", 10, C.text, FM, UDim2.new(0.7, 0, 0, 10), UDim2.new(0.3, 0, 0, 14), Enum.TextXAlignment.Right)
+            tw(prog, TI(0.4, E.Quad, D.Out), {GroupTransparency = 0})
+            local steps = 60
+            for i = 0, steps do
+                local a = TweenService:GetValue(i / steps, E.Quad, D.InOut)
+                local pc = math.floor(a * 100 + 0.5)
+                fill.Size = UDim2.fromScale(a, 1)
+                pct.Text = pc .. "%"
+                status.Text = pc < 30 and "Initializing..." or (pc < 62 and "Loading modules..." or (pc < 95 and "Scanning game..." or "Ready"))
+                task.wait(2.1 / steps)
+            end
+            task.wait(0.15)
+
+            -- finale: kilat + logo membesar, lalu pintu membuka
+            local fl = new("Frame", {
+                Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 60,
+            }, sp)
+            tw(fl, TI(0.1), {BackgroundTransparency = 0.78})
+            tw(badge, TI(0.35, E.Back, D.Out), {Size = UDim2.fromOffset(120, 120)})
+            task.wait(0.1)
+            tw(fl, TI(0.5), {BackgroundTransparency = 1})
+            task.wait(0.25)
+            tw(stage, TI(0.5, E.Quad, D.In), {GroupTransparency = 1})
+            local open = TI(0.8, E.Quint, D.InOut)
+            tw(pTop, open, {Position = UDim2.fromScale(0, -0.5)})
+            tw(pBot, open, {Position = UDim2.fromScale(0, 1)})
+            task.delay(0.3, fin)
+            task.wait(0.85)
         end)
+        if not ok then warn("[Risyadh splash]", err) end
         if sp then pcall(function() sp:Destroy() end) end
         fin()
     end)
@@ -3001,6 +3222,7 @@ end
 
 -- ===== UNLOAD =====
 env.RisyadhUnload = function()
+    env.RisyadhNotify = nil
     pcall(restoreAll)
     for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
     stopFly()
@@ -3012,4 +3234,7 @@ end
 
 tabs[1].pick()
 
-Base.splash(function() setMenu(true) end)
+Base.splash(function()
+    setMenu(true)
+    if env.RisyadhNotify then env.RisyadhNotify("Risyadh Hub", "Welcome, " .. lp.DisplayName, nil, 3.5) end
+end)
