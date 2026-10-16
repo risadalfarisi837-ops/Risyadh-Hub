@@ -1275,24 +1275,6 @@ for _, p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
 track(Players.PlayerAdded:Connect(hookPlayer))
 track(Players.PlayerRemoving:Connect(clearESP))
 
--- cache ProximityPrompt untuk Auto Prompt
-local prompts = {}
-for _, d in ipairs(workspace:GetDescendants()) do
-    if d:IsA("ProximityPrompt") then prompts[d] = true end
-end
-track(workspace.DescendantAdded:Connect(function(d)
-    if d:IsA("ProximityPrompt") then prompts[d] = true end
-end))
-track(workspace.DescendantRemoving:Connect(function(d) prompts[d] = nil end))
-
--- bagian BasePart dari sebuah ProximityPrompt (buat nempelin label / marker)
-function Base.promptPart(p)
-    local par = p.Parent
-    if par and par:IsA("Attachment") then par = par.Parent end
-    if par and par:IsA("Model") then par = par.PrimaryPart or par:FindFirstChildWhichIsA("BasePart", true) end
-    if par and par:IsA("BasePart") then return par end
-end
-
 -- Item ESP: label melayang di prompt Egg / Brainrot terdekat (maks 40)
 Base.itemFolder = new("Folder", {Name = "ItemESP"}, gui)
 task.spawn(function()
@@ -1954,10 +1936,7 @@ local buildClient -- kartu Client dipasang di tab Settings
 
     local as = card(ml, "Auto Steal", I.pointer)
     toggle(as, "Auto Steal", false, function(v) State.AutoSteal = v end)
-    slider(as, "Steal Range", 5, 60, 15, function(v) State.StealRange = v end, " st")
-    slider(as, "Search Range", 15, 400, 150, function(v) State.StealFar = v end, " st")
     toggle(as, "TP to Safe after Steal", true, function(v) State.StealTP = v end)
-    slider(as, "TP Delay", 0, 3000, 300, function(v) State.StealDelay = v end, "ms")
 
     -- Safe spot
     local sf = card(ml, "Safe Spot", "pin")
