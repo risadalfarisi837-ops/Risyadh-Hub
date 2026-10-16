@@ -2183,10 +2183,38 @@ local buildClient -- kartu Client dipasang di tab Settings
     local eg = card(el, "Egg Farm", I.badge)
     toggle(eg, "Auto Place Egg", false, function(v) State.AutoPlaceEgg = v end)
     toggle(eg, "Auto Hatch Egg", false, function(v) State.AutoHatch = v end)
-    AutoFarmEgg = v end)
+    toggle(eg, "Auto Farm Egg", false, function(v) State.AutoFarmEgg = v end)
     toggle(eg, "Auto Collect Base", false, function(v) State.AutoCollectBase = v end)
     Base.multiSelect(eg, "Egg Rarities", Base.RARITIES, function(set) State.EggRarity = set end, "All")
     slider(eg, "Egg Delay", 300, 5000, 1500, function(v) State.EggDelay = v / 1000 end, "ms")
+
+    -- My Base: titik rumah sendiri, dipakai Auto Place / Hatch / Collect
+    local mb = card(er, "My Base", I.home)
+    btnPair(mb, "Set Home", function(b, t)
+        local r = root()
+        if r then homeCF = r.CFrame homeAuto = false flash(b, "Tersimpan", t) end
+    end, "Go Home", function(b, t)
+        local r = root()
+        if r and homeCF then r.CFrame = homeCF flash(b, "OK", t) else flash(b, "Set dulu", t) end
+    end)
+    btnPair(mb, "Detect Base", function(b, t)
+        local a = detectedAnchor()
+        if a then homeCF = CFrame.new(a + Vector3.new(0, 4, 0)) homeAuto = false flash(b, "Ketemu", t) else flash(b, "Nggak ada", t) end
+    end, "Clear Home", function(b, t)
+        homeCF = nil
+        homeAuto = false
+        flash(b, "Dihapus", t)
+    end)
+    slider(mb, "Base Radius", 20, 200, 60, function(v) State.BaseRadius = v end, " st")
+    -- cek apakah script beneran ngenalin base lo: P = tempat taruh, H = hatch, C = collect
+    local scanBtn
+    scanBtn = button(mb, "Scan Base", function()
+        local np = #findPrompts({"place", "plant", "incubat", "nest"}, true)
+        local nh = #findPrompts({"hatch"}, true)
+        local nc = #findPrompts({"collect", "claim"}, true)
+        flash(scanBtn, ("P%d  H%d  C%d"):format(np, nh, nc), "Scan Base")
+    end)
+    Controls["Home Base"] = {get = function() return posTable(homeCF) end, set = function(v) homeCF = fromTable(v) or homeCF homeAuto = false end}
 
     -- loop treadmill
     local lastTick = 0
@@ -2639,6 +2667,13 @@ toggle(fl, "Fly", false, function(v)
     if v then startFly() else stopFly() end
 end)
 slider(fl, "Fly Speed", 20, 300, State.FlySpeed, function(v) State.FlySpeed = v end)
+
+local tp = card(pr, "Teleport", "pin")
+btnPair(tp, "Go Home", function(b, t)
+    flash(b, Base.goHome and Base.goHome() and "OK" or "Set Home dulu", t)
+end, "Go Safe", function(b, t)
+    if Base.goSafe then Base.goSafe() flash(b, "OK", t) end
+end)
 
 -- pilih pemain (dropdown) -> Teleport / Spectate
 local plrMap, plrDD = {}, nil
