@@ -986,7 +986,8 @@ local State = {
     ESPHL = true, ESPDist = true, ESPEgg = false, ESPBrain = false,
     AutoHome = true, HatchCd = 3, PlaceCd = 4,
     JumpOn = false, Jump = 50, NoFog = false,
-    AntiScare = false, Ghost = false, ZoomOn = false, ZoomMax = 400,
+    AntiScare = false, StrictScare = false, Ghost = false, FreezeEnemy = false, ZoomOn = false, ZoomMax = 400,
+    BrightLevel = 3, ESPEnemy = false, ESPItemAll = false,
 }
 
 local function hum()
@@ -1207,16 +1208,50 @@ local origLight = {
     Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
     GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
     FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
+    Exposure = Lighting.ExposureCompensation,
 }
 local origFOV = (workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView) or 70
 
+Base.atmoOrig = setmetatable({}, {__mode = "k"})
 local function applyLight()
     if State.Fullbright then
-        Lighting.Brightness = 2
+        local lv = State.BrightLevel
+        Lighting.Brightness = lv
         Lighting.ClockTime = 14
         Lighting.GlobalShadows = false
-        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-        Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.FogEnd = 1e6
+        pcall(function()
+            Lighting.ExposureCompensation = math.clamp((lv - 2) * 0.25, 0, 2)
+            Lighting.EnvironmentDiffuseScale = 1
+        end)
+        for _, a in ipairs(Lighting:GetChildren()) do
+            if a:IsA("Atmosphere") then
+                if not Base.atmoOrig[a] then Base.atmoOrig[a] = {a.Density, a.Haze} end
+                a.Density = 0
+                a.Haze = 0
+            end
+        end
+        -- lampu di badan karakter: tetap terang walau Lighting di-reset game
+        local r = root()
+        if r then
+            local l = Base.brightLight
+            if not (l and l.Parent == r) then
+                if l then pcall(function() l:Destroy() end) end
+                l = Instance.new("PointLight")
+                l.Name = "RisyadhLight"
+                l.Shadows = false
+                l.Color = Color3.new(1, 1, 1)
+                l.Parent = r
+                Base.brightLight = l
+            end
+            l.Brightness = lv
+            l.Range = math.clamp(20 + lv * 8, 20, 60)
+        end
+    elseif Base.brightLight then
+        pcall(function() Base.brightLight:Destroy() end)
+        Base.brightLight = nil
     end
     if State.NoFog then Lighting.FogEnd = 1e6 end
 end
@@ -1228,6 +1263,15 @@ local function restoreLight()
     Lighting.OutdoorAmbient = origLight.OutdoorAmbient
     Lighting.FogEnd = origLight.FogEnd
     Lighting.FogStart = origLight.FogStart
+    pcall(function() Lighting.ExposureCompensation = origLight.Exposure end)
+    for a, v in pairs(Base.atmoOrig) do
+        pcall(function() a.Density = v[1] a.Haze = v[2] end)
+    end
+    table.clear(Base.atmoOrig)
+    if Base.brightLight then
+        pcall(function() Base.brightLight:Destroy() end)
+        Base.brightLight = nil
+    end
 end
 
 -- ESP pemain
@@ -1265,7 +1309,7 @@ local function applyESP(plr)
     bb.AlwaysOnTop = true
     bb.Size = UDim2.fromOffset(140, 30)
     bb.StudsOffset = Vector3.new(0, 2.6, 0)
-    bb.Parent = espFolder
+    bb.Parent = head
     e.bb = bb
     e.lbl = new("TextLabel", {
         BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Text = plr.DisplayName,
@@ -1385,21 +1429,24 @@ track(lp.Idled:Connect(function()
     end
 end))
 
--- ===== ANTI JUMPSCARE / GHOST / ZOOM =====
+-- ===== ANTI JUMPSCARE / GHOST / ZOOM / ESP GENERIK =====
 do
 local origZoomMax, origZoomMin = lp.CameraMaxZoomDistance, lp.CameraMinZoomDistance
-local scareWords = {"jumpscare", "jump scare", "jump_scare", "scare", "scream", "screamer"}
-local function scareName(n)
+local function nameHas(n, list)
     n = tostring(n or ""):lower()
-    for _, w in ipairs(scareWords) do
+    for _, w in ipairs(list) do
         if n:find(w, 1, true) then return true end
     end
     return false
 end
+local scareWords = {"jumpscare", "jump scare", "jump_scare", "jscare", "scare", "scream", "screech", "shriek", "spook", "kejut", "serem", "horror"}
+local function scareName(n) return nameHas(n, scareWords) end
+
 local scareConns = {}
 local soundVol = setmetatable({}, {__mode = "k"})
 local guiOrig = setmetatable({}, {__mode = "k"})
 local scareSeen = setmetatable({}, {__mode = "k"})
+local lastPlay = setmetatable({}, {__mode = "k"})
 local function scareTrack(c) scareConns[#scareConns + 1] = c return c end
 
 local function bigGui(o)
@@ -1422,35 +1469,66 @@ local function killSound(snd)
     end))
 end
 
-local function hideGui(o)
+-- suara yang baru mulai main sesaat sebelum jumpscare ikut dibisukan
+local function stopRecent(sec)
+    local now = os.clock()
+    for snd, t in pairs(lastPlay) do
+        if now - t <= sec and snd.Parent then killSound(snd) end
+    end
+end
+local function trackSound(snd)
+    if lastPlay[snd] ~= nil then return end
+    lastPlay[snd] = snd.IsPlaying and os.clock() or 0
+    scareTrack(snd:GetPropertyChangedSignal("Playing"):Connect(function()
+        if snd.Playing then lastPlay[snd] = os.clock() end
+    end))
+end
+
+local function hideGui(o, fresh)
     if scareSeen[o] then return end
     scareSeen[o] = true
     local prop = o:IsA("ScreenGui") and "Enabled" or "Visible"
     guiOrig[o] = o[prop]
-    local function hide()
-        if State.AntiScare and o[prop] then o[prop] = false end
+    local function hide(fromSignal)
+        if State.AntiScare and o[prop] then
+            o[prop] = false
+            if fromSignal or fresh then stopRecent(2) end
+        end
     end
-    hide()
-    scareTrack(o:GetPropertyChangedSignal(prop):Connect(hide))
+    hide(false)
+    scareTrack(o:GetPropertyChangedSignal(prop):Connect(function() hide(true) end))
 end
 
 local function considerScare(o, initial)
     if not State.AntiScare or o:FindFirstAncestor("RisyadhHub") then return end
     if o:IsA("Sound") then
+        trackSound(o)
         if scareName(o.Name) or (o.Parent and scareName(o.Parent.Name)) then killSound(o) end
     elseif o:IsA("ScreenGui") then
-        if scareName(o.Name) then hideGui(o) end
-    elseif o:IsA("ImageLabel") or o:IsA("ImageButton") or o:IsA("VideoFrame") or o:IsA("Frame") then
+        if scareName(o.Name) then hideGui(o, not initial) end
+    elseif o:IsA("GuiObject") then
         if scareName(o.Name) then
-            hideGui(o)
-        elseif not o:IsA("Frame") then
+            hideGui(o, not initial)
+        elseif State.StrictScare or o:IsA("ImageLabel") or o:IsA("ImageButton") or o:IsA("VideoFrame") then
             task.defer(function()
                 if not (State.AntiScare and o.Parent) then return end
-                -- UI baru yang muncul layar penuh = hampir pasti jumpscare.
-                -- UI lama dibiarkan kecuali memang tersembunyi tapi berukuran layar penuh.
-                if bigGui(o) and (not initial or not o.Visible) then hideGui(o) end
+                -- UI baru layar penuh = hampir pasti jumpscare; UI lama cuma kalau memang tersembunyi
+                if bigGui(o) and (not initial or not o.Visible) then hideGui(o, not initial) end
             end)
         end
+    end
+end
+
+-- kamera: cegah dipaksa Scriptable / dipindah ke hantu, dan hilangkan shake
+local function scareCam()
+    local cam, h = workspace.CurrentCamera, hum()
+    if not cam or not h then return end
+    if h.CameraOffset ~= Vector3.zero then h.CameraOffset = Vector3.zero end
+    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
+    local sub = cam.CameraSubject
+    if sub and sub:IsA("Humanoid") and sub ~= h then
+        local ch = sub.Parent
+        if not (ch and Players:GetPlayerFromCharacter(ch)) then cam.CameraSubject = h end
     end
 end
 
@@ -1459,7 +1537,10 @@ local function setAntiScare(on)
     for _, c in ipairs(scareConns) do pcall(function() c:Disconnect() end) end
     table.clear(scareConns)
     table.clear(scareSeen)
+    table.clear(lastPlay)
+    pcall(function() RunService:UnbindFromRenderStep("RisyadhAntiScare") end)
     if on then
+        pcall(function() RunService:BindToRenderStep("RisyadhAntiScare", Enum.RenderPriority.Last.Value, scareCam) end)
         local pg = lp:FindFirstChildOfClass("PlayerGui")
         local SS = game:GetService("SoundService")
         for _, root in ipairs({pg, SS, workspace}) do
@@ -1482,13 +1563,19 @@ local function setAntiScare(on)
     end
 end
 
--- Ghost: karakter transparan + tembus tembok
+-- ===== Ghost =====
 local ghostOrig = setmetatable({}, {__mode = "k"})
 local function ghostRestore()
     for p, v in pairs(ghostOrig) do
         pcall(function() p.Transparency = v end)
     end
     table.clear(ghostOrig)
+    local c = lp.Character
+    if c then
+        for _, p in ipairs(c:GetDescendants()) do
+            if p:IsA("BasePart") then pcall(function() p.CanTouch = true p.CanQuery = true end) end
+        end
+    end
 end
 track(RunService.Stepped:Connect(function()
     if not State.Ghost then return end
@@ -1497,6 +1584,8 @@ track(RunService.Stepped:Connect(function()
     for _, p in ipairs(c:GetDescendants()) do
         if p:IsA("BasePart") then
             p.CanCollide = false
+            p.CanTouch = false   -- trigger Touched (client) nggak kena
+            p.CanQuery = false   -- raycast deteksi (client) tembus
             if p.Name ~= "HumanoidRootPart" then
                 if ghostOrig[p] == nil then ghostOrig[p] = p.Transparency end
                 p.Transparency = math.max(ghostOrig[p], 0.6)
@@ -1508,27 +1597,220 @@ track(RunService.Stepped:Connect(function()
     end
 end))
 
--- Zoom kamera + hilangkan camera shake saat Anti Jumpscare aktif
+-- ===== cache musuh & item (workspace) =====
+local enemyWords = {"ghost", "hantu", "monster", "enemy", "entity", "killer", "demon", "zombie", "spirit", "phantom",
+    "creature", "ghoul", "witch", "pocong", "kuntilanak", "tuyul", "genderuwo", "wewe", "mob", "boss", "chaser", "stalker"}
+local enemies, itemSet = {}, {}
+local function inPlayerChar(o)
+    local m = o
+    while m and m ~= workspace do
+        if m:IsA("Model") and Players:GetPlayerFromCharacter(m) then return true end
+        m = m.Parent
+    end
+    return false
+end
+local function enemyCheck(m)
+    if m and m:IsA("Model") and m ~= lp.Character and not inPlayerChar(m) then
+        if m:FindFirstChildOfClass("Humanoid") or nameHas(m.Name, enemyWords) then enemies[m] = true end
+    end
+end
+local function cacheAdd(o)
+    if o:IsA("Model") then enemyCheck(o)
+    elseif o:IsA("Humanoid") then enemyCheck(o.Parent)
+    elseif o:IsA("Tool") or o:IsA("ClickDetector") then itemSet[o] = true end
+end
+for _, o in ipairs(workspace:GetDescendants()) do cacheAdd(o) end
+track(workspace.DescendantAdded:Connect(cacheAdd))
+track(workspace.DescendantRemoving:Connect(function(o) enemies[o] = nil itemSet[o] = nil end))
+
+-- ===== ESP musuh & item =====
+local espObjs2 = {}
+local function clearTag(t)
+    local e = espObjs2[t]
+    if e then
+        if e.bb then pcall(function() e.bb:Destroy() end) end
+        if e.hl then pcall(function() e.hl:Destroy() end) end
+        espObjs2[t] = nil
+    end
+end
+local function ensureTag(t, part, text, col, hlTarget)
+    local e = espObjs2[t]
+    if e and e.part == part and e.bb and e.bb.Parent and (not hlTarget or (e.hl and e.hl.Parent)) then
+        e.lbl.Text = text
+        return
+    end
+    clearTag(t)
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "RisyadhESP"
+    bb.Adornee = part
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.fromOffset(170, 22)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.Parent = part
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.Text = text
+    lbl.TextColor3 = col
+    lbl.TextStrokeTransparency = 0.3
+    lbl.Font = FB
+    lbl.TextSize = 12
+    lbl.Parent = bb
+    local hl
+    if hlTarget then
+        hl = Instance.new("Highlight")
+        hl.Name = "RisyadhESP"
+        hl.FillColor = col
+        hl.OutlineColor = Color3.new(1, 1, 1)
+        hl.FillTransparency = 0.6
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = hlTarget
+    end
+    espObjs2[t] = {bb = bb, hl = hl, lbl = lbl, part = part}
+end
+local function anyPart(inst)
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Tool") then return inst:FindFirstChild("Handle") or inst:FindFirstChildWhichIsA("BasePart", true) end
+    if inst:IsA("ClickDetector") then
+        local par = inst.Parent
+        if par and par:IsA("BasePart") then return par end
+        if par and par:IsA("Model") then return par.PrimaryPart or par:FindFirstChildWhichIsA("BasePart", true) end
+    end
+end
+task.spawn(function()
+    while alive do
+        task.wait(0.6)
+        local r = root()
+        local keep = {}
+        if r and State.ESPEnemy then
+            local list = {}
+            for m in pairs(enemies) do
+                if m.Parent then
+                    local part = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true)
+                    if part then list[#list + 1] = {m = m, part = part, d = (part.Position - r.Position).Magnitude} end
+                else
+                    enemies[m] = nil
+                end
+            end
+            table.sort(list, function(x, y) return x.d < y.d end)
+            for i = 1, math.min(#list, 25) do
+                local x = list[i]
+                ensureTag(x.m, x.part, x.m.Name .. "  [" .. math.floor(x.d) .. "m]", Color3.fromRGB(255, 70, 70), i <= 15 and x.m or nil)
+                keep[x.m] = true
+            end
+        end
+        if r and State.ESPItemAll then
+            local list = {}
+            for p in pairs(prompts) do
+                if p.Parent and p.Enabled and not inPlayerChar(p) then
+                    local part = Base.promptPart(p)
+                    if part then
+                        local txt = (p.ObjectText ~= "" and p.ObjectText) or (p.ActionText ~= "" and p.ActionText) or p.Parent.Name
+                        list[#list + 1] = {k = p, part = part, text = txt, d = (part.Position - r.Position).Magnitude}
+                    end
+                end
+            end
+            for it in pairs(itemSet) do
+                if it.Parent and not inPlayerChar(it) then
+                    local part = anyPart(it)
+                    if part then
+                        local nm = it:IsA("ClickDetector") and (it.Parent and it.Parent.Name or "Item") or it.Name
+                        list[#list + 1] = {k = it, part = part, text = nm, d = (part.Position - r.Position).Magnitude}
+                    end
+                end
+            end
+            table.sort(list, function(x, y) return x.d < y.d end)
+            for i = 1, math.min(#list, 40) do
+                local x = list[i]
+                ensureTag(x.k, x.part, x.text .. "  [" .. math.floor(x.d) .. "m]", Color3.fromRGB(255, 220, 90), nil)
+                keep[x.k] = true
+            end
+        end
+        for t in pairs(espObjs2) do
+            if not keep[t] then clearTag(t) end
+        end
+    end
+end)
+
+-- ESP teman/pemain: pasang ulang kalau hilang (respawn, dihapus game)
+task.spawn(function()
+    while alive do
+        task.wait(1)
+        if State.ESP then
+            for _, pl in ipairs(Players:GetPlayers()) do
+                local ch = pl.Character
+                if pl ~= lp and ch then
+                    local e = espObjs[pl]
+                    local bad = (not e) or (not e.bb) or (not e.bb.Parent)
+                        or (State.ESPHL and not (e.hl and e.hl.Parent))
+                        or not (e.head and e.head:IsDescendantOf(ch))
+                    if bad then applyESP(pl) end
+                end
+            end
+        end
+    end
+end)
+
+-- ===== Freeze Hantu (eksperimen: butuh network ownership) =====
+local frozen = setmetatable({}, {__mode = "k"})
+local lastSim = 0
+track(RunService.Heartbeat:Connect(function()
+    if not State.FreezeEnemy then return end
+    if os.clock() - lastSim > 2 then
+        lastSim = os.clock()
+        if sethiddenproperty then
+            pcall(sethiddenproperty, lp, "SimulationRadius", 1e9)
+            pcall(sethiddenproperty, lp, "MaximumSimulationRadius", 1e9)
+        end
+    end
+    local r = root()
+    if not r then return end
+    for m in pairs(enemies) do
+        if m.Parent then
+            local part = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+            if part and not part.Anchored and (part.Position - r.Position).Magnitude < 250 then
+                local cf = frozen[part]
+                if not cf then cf = part.CFrame frozen[part] = cf end
+                part.AssemblyLinearVelocity = Vector3.zero
+                part.AssemblyAngularVelocity = Vector3.zero
+                part.CFrame = cf
+                local h = m:FindFirstChildOfClass("Humanoid")
+                if h then h.WalkSpeed = 0 end
+            end
+        end
+    end
+end))
+
+-- ===== Zoom kamera + terang terus =====
 track(RunService.RenderStepped:Connect(function()
     if State.ZoomOn then
         lp.CameraMaxZoomDistance = State.ZoomMax
         lp.CameraMinZoomDistance = 0.5
     end
-    if State.AntiScare then
-        local h = hum()
-        if h and h.CameraOffset ~= Vector3.zero then h.CameraOffset = Vector3.zero end
-    end
+    if State.Fullbright then applyLight() end
 end))
 
 Base.setAntiScare = setAntiScare
+Base.rescanScare = function()
+    if State.AntiScare then setAntiScare(false) setAntiScare(true) end
+end
 Base.ghostRestore = ghostRestore
+Base.setFreeze = function(v)
+    State.FreezeEnemy = v
+    if not v then table.clear(frozen) end
+end
 Base.zoomRestore = function()
     lp.CameraMaxZoomDistance = origZoomMax
     lp.CameraMinZoomDistance = origZoomMin
 end
 Base.cleanupExtras = function()
     State.Ghost = false
+    State.FreezeEnemy = false
+    State.ESPEnemy = false
+    State.ESPItemAll = false
     ghostRestore()
+    table.clear(frozen)
+    for t in pairs(espObjs2) do clearTag(t) end
     if State.AntiScare then setAntiScare(false) end
     if State.ZoomOn then
         State.ZoomOn = false
@@ -3187,9 +3469,14 @@ toggle(fl, "Ghost Mode", false, function(v)
     State.Ghost = v
     if not v then Base.ghostRestore() end
 end)
+toggle(fl, "Freeze Hantu (Eksperimen)", false, function(v) Base.setFreeze(v) end)
 
 local prot = card(pr, "Protection", "eye")
 toggle(prot, "Anti Jumpscare", false, function(v) Base.setAntiScare(v) end)
+toggle(prot, "Strict: Blok UI Layar Penuh", false, function(v)
+    State.StrictScare = v
+    Base.rescanScare()
+end)
 
 local tp = card(pr, "Teleport", "pin")
 btnPair(tp, "Go Home", function(b, t)
@@ -3263,7 +3550,7 @@ local visual = newTab("Visual", "eye")
 local vl, vr = twoCol(visual)
 
 local esp = card(vl, "ESP", "eye")
-toggle(esp, "ESP Players", false, setESP)
+toggle(esp, "ESP Teman", false, setESP)
 toggle(esp, "Highlight", true, function(v)
     State.ESPHL = v
     if State.ESP then setESP(true) end
@@ -3274,11 +3561,16 @@ local itemC = card(vl, "Item ESP", "eye")
 toggle(itemC, "Egg ESP", false, function(v) State.ESPEgg = v end)
 toggle(itemC, "Brainrot ESP", false, function(v) State.ESPBrain = v end)
 
+local genC = card(vl, "ESP Musuh & Item", "eye")
+toggle(genC, "ESP Musuh / Hantu", false, function(v) State.ESPEnemy = v end)
+toggle(genC, "ESP Item (Semua)", false, function(v) State.ESPItemAll = v end)
+
 local world = card(vr, "World", "sun")
 toggle(world, "Fullbright", false, function(v)
     State.Fullbright = v
     if not v then restoreLight() end
 end)
+slider(world, "Brightness", 1, 10, State.BrightLevel, function(v) State.BrightLevel = v end)
 toggle(world, "No Fog", false, function(v)
     State.NoFog = v
     if not v then restoreLight() end
