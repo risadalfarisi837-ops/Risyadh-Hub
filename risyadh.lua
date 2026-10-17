@@ -986,6 +986,7 @@ local State = {
     ESPHL = true, ESPDist = true, ESPEgg = false, ESPBrain = false,
     AutoHome = true, HatchCd = 3, PlaceCd = 4,
     JumpOn = false, Jump = 50, NoFog = false,
+    AntiScare = false, Ghost = false, ZoomOn = false, ZoomMax = 400,
 }
 
 local function hum()
@@ -1384,12 +1385,166 @@ track(lp.Idled:Connect(function()
     end
 end))
 
+-- ===== ANTI JUMPSCARE / GHOST / ZOOM =====
+do
+local origZoomMax, origZoomMin = lp.CameraMaxZoomDistance, lp.CameraMinZoomDistance
+local scareWords = {"jumpscare", "jump scare", "jump_scare", "scare", "scream", "screamer"}
+local function scareName(n)
+    n = tostring(n or ""):lower()
+    for _, w in ipairs(scareWords) do
+        if n:find(w, 1, true) then return true end
+    end
+    return false
+end
+local scareConns = {}
+local soundVol = setmetatable({}, {__mode = "k"})
+local guiOrig = setmetatable({}, {__mode = "k"})
+local scareSeen = setmetatable({}, {__mode = "k"})
+local function scareTrack(c) scareConns[#scareConns + 1] = c return c end
+
+local function bigGui(o)
+    local cam = workspace.CurrentCamera
+    if not cam then return false end
+    local v, sz = cam.ViewportSize, o.AbsoluteSize
+    return sz.X >= v.X * 0.7 and sz.Y >= v.Y * 0.7
+end
+
+local function killSound(snd)
+    if scareSeen[snd] then return end
+    scareSeen[snd] = true
+    soundVol[snd] = snd.Volume
+    pcall(function() snd.Volume = 0 snd:Stop() end)
+    scareTrack(snd:GetPropertyChangedSignal("Volume"):Connect(function()
+        if State.AntiScare and snd.Volume ~= 0 then snd.Volume = 0 end
+    end))
+    scareTrack(snd:GetPropertyChangedSignal("Playing"):Connect(function()
+        if State.AntiScare and snd.Playing then snd:Stop() end
+    end))
+end
+
+local function hideGui(o)
+    if scareSeen[o] then return end
+    scareSeen[o] = true
+    local prop = o:IsA("ScreenGui") and "Enabled" or "Visible"
+    guiOrig[o] = o[prop]
+    local function hide()
+        if State.AntiScare and o[prop] then o[prop] = false end
+    end
+    hide()
+    scareTrack(o:GetPropertyChangedSignal(prop):Connect(hide))
+end
+
+local function considerScare(o, initial)
+    if not State.AntiScare or o:FindFirstAncestor("RisyadhHub") then return end
+    if o:IsA("Sound") then
+        if scareName(o.Name) or (o.Parent and scareName(o.Parent.Name)) then killSound(o) end
+    elseif o:IsA("ScreenGui") then
+        if scareName(o.Name) then hideGui(o) end
+    elseif o:IsA("ImageLabel") or o:IsA("ImageButton") or o:IsA("VideoFrame") or o:IsA("Frame") then
+        if scareName(o.Name) then
+            hideGui(o)
+        elseif not o:IsA("Frame") then
+            task.defer(function()
+                if not (State.AntiScare and o.Parent) then return end
+                -- UI baru yang muncul layar penuh = hampir pasti jumpscare.
+                -- UI lama dibiarkan kecuali memang tersembunyi tapi berukuran layar penuh.
+                if bigGui(o) and (not initial or not o.Visible) then hideGui(o) end
+            end)
+        end
+    end
+end
+
+local function setAntiScare(on)
+    State.AntiScare = on
+    for _, c in ipairs(scareConns) do pcall(function() c:Disconnect() end) end
+    table.clear(scareConns)
+    table.clear(scareSeen)
+    if on then
+        local pg = lp:FindFirstChildOfClass("PlayerGui")
+        local SS = game:GetService("SoundService")
+        for _, root in ipairs({pg, SS, workspace}) do
+            if root then
+                scareTrack(root.DescendantAdded:Connect(function(o) considerScare(o, false) end))
+                for _, o in ipairs(root:GetDescendants()) do
+                    if root ~= workspace or o:IsA("Sound") then considerScare(o, true) end
+                end
+            end
+        end
+    else
+        for snd, v in pairs(soundVol) do pcall(function() snd.Volume = v end) end
+        for o, v in pairs(guiOrig) do
+            pcall(function()
+                if o:IsA("ScreenGui") then o.Enabled = v else o.Visible = v end
+            end)
+        end
+        table.clear(soundVol)
+        table.clear(guiOrig)
+    end
+end
+
+-- Ghost: karakter transparan + tembus tembok
+local ghostOrig = setmetatable({}, {__mode = "k"})
+local function ghostRestore()
+    for p, v in pairs(ghostOrig) do
+        pcall(function() p.Transparency = v end)
+    end
+    table.clear(ghostOrig)
+end
+track(RunService.Stepped:Connect(function()
+    if not State.Ghost then return end
+    local c = lp.Character
+    if not c then return end
+    for _, p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CanCollide = false
+            if p.Name ~= "HumanoidRootPart" then
+                if ghostOrig[p] == nil then ghostOrig[p] = p.Transparency end
+                p.Transparency = math.max(ghostOrig[p], 0.6)
+            end
+        elseif p:IsA("Decal") then
+            if ghostOrig[p] == nil then ghostOrig[p] = p.Transparency end
+            p.Transparency = math.max(ghostOrig[p], 0.6)
+        end
+    end
+end))
+
+-- Zoom kamera + hilangkan camera shake saat Anti Jumpscare aktif
+track(RunService.RenderStepped:Connect(function()
+    if State.ZoomOn then
+        lp.CameraMaxZoomDistance = State.ZoomMax
+        lp.CameraMinZoomDistance = 0.5
+    end
+    if State.AntiScare then
+        local h = hum()
+        if h and h.CameraOffset ~= Vector3.zero then h.CameraOffset = Vector3.zero end
+    end
+end))
+
+Base.setAntiScare = setAntiScare
+Base.ghostRestore = ghostRestore
+Base.zoomRestore = function()
+    lp.CameraMaxZoomDistance = origZoomMax
+    lp.CameraMinZoomDistance = origZoomMin
+end
+Base.cleanupExtras = function()
+    State.Ghost = false
+    ghostRestore()
+    if State.AntiScare then setAntiScare(false) end
+    if State.ZoomOn then
+        State.ZoomOn = false
+        lp.CameraMaxZoomDistance = origZoomMax
+        lp.CameraMinZoomDistance = origZoomMin
+    end
+end
+end
+
 local function restoreAll()
     alive = false
     setESP(false)
     restoreLight()
     pcall(function() Base.itemFolder:ClearAllChildren() end)
     if Base.stopSpec then pcall(Base.stopSpec) end
+    if Base.cleanupExtras then pcall(Base.cleanupExtras) end
     local cam = workspace.CurrentCamera
     if cam and State.FOVOn then cam.FieldOfView = origFOV end
 end
@@ -2472,7 +2627,21 @@ local buildClient -- kartu Client dipasang di tab Settings
     -- Client: dipasang di tab Settings lewat buildClient(kolom)
     buildClient = function(col)
         local cl = card(col, "Client", I.sys)
-        toggle(cl, "Anti AFK", false, function(v) State.AntiAFK = v end)
+        -- No Gameplay Paused: matiin pause streaming (kalau executor bisa nulis property-nya)
+        local function noPause(v)
+            if not v then return end
+            pcall(function() workspace.StreamingIntegrityMode = Enum.StreamingIntegrityMode.Disabled end)
+            if sethiddenproperty then
+                pcall(sethiddenproperty, workspace, "StreamingIntegrityMode", Enum.StreamingIntegrityMode.Disabled)
+            end
+        end
+        toggle(cl, "No Gameplay Paused", true, function(v) State.NoPause = v noPause(v) end)
+        task.spawn(function()
+            while alive do
+                if State.NoPause then noPause(true) end
+                task.wait(5)
+            end
+        end)
         local GuiService = game:GetService("GuiService")
         local reconnecting = false
         local function reconnect()
@@ -2509,11 +2678,19 @@ local buildClient -- kartu Client dipasang di tab Settings
                 end
             end)
         end)
+        toggle(cl, "Disable 3D Rendering", false, function(v)
+            pcall(function() RunService:Set3dRenderingEnabled(not v) end)
+        end)
         toggle(cl, "FPS Boost", false, function(v)
             pcall(function()
                 settings().Rendering.QualityLevel = v and Enum.QualityLevel.Level01 or Enum.QualityLevel.Automatic
             end)
         end)
+        toggle(cl, "Hide UI On Start", false, function(v) State.HideOnStart = v end)
+        task.delay(2, function()
+            if State.HideOnStart and setMenu then pcall(setMenu, false) end
+        end)
+        toggle(cl, "Anti AFK", false, function(v) State.AntiAFK = v end)
         toggle(cl, "Unlock FPS", false, function(v)
             if setfpscap then pcall(setfpscap, v and 240 or 60) end
         end)
@@ -2977,9 +3154,16 @@ toggle(mv, "WalkSpeed", false, function(v)
     State.WalkSpeed = v
     if not v then local h = hum() if h then h.WalkSpeed = 16 end end
 end)
-slider(mv, "Speed", 16, 200, State.Speed, function(v) State.Speed = v end)
+slider(mv, "Speed", 16, 1000, State.Speed, function(v) State.Speed = v end)
 toggle(mv, "Infinite Jump", false, function(v) State.InfJump = v end)
 toggle(mv, "Noclip", false, function(v) State.Noclip = v end)
+toggle(mv, "Instant ProximityPrompt", false, function(v) State.InstantPP = v end)
+track(PPS.PromptShown:Connect(function(p)
+    if State.InstantPP then pcall(function() p.HoldDuration = 0 end) end
+end))
+track(PPS.PromptButtonHoldBegan:Connect(function(p, plr)
+    if State.InstantPP and plr == lp then Base.fireP(p) end
+end))
 toggle(mv, "God Mode", false, function(v) if Base.setGod then Base.setGod(v) end end)
 toggle(mv, "Jump Power", false, function(v)
     State.JumpOn = v
@@ -2991,12 +3175,21 @@ button(mv, "Reset Character", function()
     if h then h.Health = 0 end
 end)
 
+buildClient(pl) -- kartu Client (No Gameplay Paused, Reconnect, 3D Rendering, FPS, Hide UI) di bawah Movement
+
 local fl = card(pr, "Fly", I.fly)
 toggle(fl, "Fly", false, function(v)
     State.Fly = v
     if v then startFly() else stopFly() end
 end)
-slider(fl, "Fly Speed", 20, 300, State.FlySpeed, function(v) State.FlySpeed = v end)
+slider(fl, "Fly Speed", 20, 1000, State.FlySpeed, function(v) State.FlySpeed = v end)
+toggle(fl, "Ghost Mode", false, function(v)
+    State.Ghost = v
+    if not v then Base.ghostRestore() end
+end)
+
+local prot = card(pr, "Protection", "eye")
+toggle(prot, "Anti Jumpscare", false, function(v) Base.setAntiScare(v) end)
 
 local tp = card(pr, "Teleport", "pin")
 btnPair(tp, "Go Home", function(b, t)
@@ -3098,6 +3291,11 @@ toggle(world, "FOV Changer", false, function(v)
     end
 end)
 slider(world, "FOV", 40, 120, State.FOV, function(v) State.FOV = v end)
+toggle(world, "Camera Zoom", false, function(v)
+    State.ZoomOn = v
+    if not v then Base.zoomRestore() end
+end)
+slider(world, "Max Zoom", 20, 1000, State.ZoomMax, function(v) State.ZoomMax = v end)
 
 end
 
@@ -3169,7 +3367,6 @@ end)
 button(menuC, "Unload Hub", function()
     if env.RisyadhUnload then env.RisyadhUnload() end
 end)
-buildClient(sl)
 
 -- Configs
 local cfgC = card(sr, "Configs", "folder")
@@ -3438,6 +3635,7 @@ end
 env.RisyadhUnload = function()
     env.RisyadhNotify = nil
     pcall(restoreAll)
+    pcall(function() RunService:Set3dRenderingEnabled(true) end)
     for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
     stopFly()
     local h = hum()
