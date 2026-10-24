@@ -3930,7 +3930,7 @@ local PROFILES = {
     {id = "doors", label = "DOORS", names = {"doors"}, places = {6516141723, 6839171747}, file = "games/doors.lua"},
     {id = "mm2", label = "Murder Mystery 2", names = {"murder mystery"}, places = {142823291}, file = "games/mm2.lua"},
     {id = "bloxfruits", label = "Blox Fruits", names = {"blox fruit"}, places = {2753915549, 4442272183, 7449423635}, file = "games/bloxfruits.lua"},
-    {id = "nights99", label = "99 Nights in the Forest", names = {"99 nights"}, places = {126509999114328, 75729048078019}, file = "games/nights99.lua"},
+    {id = "nights99", label = "99 Nights in the Forest", names = {"99 nights"}, places = {126509999114328, 75729048078019, 119958473240233}, file = "games/nights99.lua"},
     {id = "horror", label = "Horror / Hantu", names = {"horror", "scary", "ghost", "hantu", "haunted", "pocong", "kuntilanak", "nightmare", "backrooms", "jumpscare", "creepy", "angker", "kkn", "evil", "survive the killer", "piggy", "the mimic", "apeirophobia", "slender", "the rake", "granny", "pressure"}, file = "games/horror.lua"},
 }
 -- kartu (fitur) yang tampil per game; tab Home, Game, Settings selalu ada
